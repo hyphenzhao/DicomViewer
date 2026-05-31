@@ -1,6 +1,7 @@
 using FellowOakDicom;
 using FellowOakDicom.Imaging;
 using FellowOakDicom.Imaging.Render;
+using System.Drawing;
 using System.IO.Compression;
 
 namespace DicomViewer;
@@ -11,6 +12,7 @@ internal sealed class DicomVolume
     public required IReadOnlyList<string> SourceFiles { get; init; }
     public required float[,,] Voxels { get; init; }
     public required OrientationInfo Orientation { get; init; }
+    public IReadOnlyList<NiftiOverlayLayer> Overlays { get; init; } = [];
 
     public int Depth => Voxels.GetLength(0);
     public int Height => Voxels.GetLength(1);
@@ -20,7 +22,7 @@ internal sealed class DicomVolume
     public int CoronalIndex => Height > 0 ? Height / 2 : 0;
     public int SagittalIndex => Width > 0 ? Width / 2 : 0;
 
-    public static DicomVolume LoadFromFolder(string folder)
+    public static DicomVolume LoadFromFolder(string folder, IProgress<LoadProgress>? progress = null)
     {
         if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
         {
@@ -33,11 +35,14 @@ internal sealed class DicomVolume
             throw new InvalidOperationException("No DICOM files were found in the selected folder.");
         }
 
+        progress?.Report(new LoadProgress(0, 0, "正在扫描 DICOM 文件...", "准备读取文件"));
         var slices = new List<SliceData>();
-        foreach (string path in seriesFiles)
+        for (int fileIndex = 0; fileIndex < seriesFiles.Count; fileIndex++)
         {
+            string path = seriesFiles[fileIndex];
             try
             {
+                progress?.Report(new LoadProgress(GetTotalPercent(fileIndex, seriesFiles.Count, 0), 0, $"正在读取 DICOM 文件 {fileIndex + 1}/{seriesFiles.Count}", Path.GetFileName(path)));
                 var file = DicomFile.Open(path);
                 var dataset = file.Dataset;
                 var pixelData = DicomPixelData.Create(dataset);
@@ -57,6 +62,12 @@ internal sealed class DicomVolume
                     for (int x = 0; x < width; x++)
                     {
                         pixels[y, x] = GetPixelValue(frame, x, y);
+                    }
+
+                    if (y % 16 == 0 || y == height - 1)
+                    {
+                        int currentPercent = GetPercent(y + 1, height);
+                        progress?.Report(new LoadProgress(GetTotalPercent(fileIndex, seriesFiles.Count, currentPercent), currentPercent, $"正在读取 DICOM 文件 {fileIndex + 1}/{seriesFiles.Count}", Path.GetFileName(path)));
                     }
                 }
 
@@ -82,6 +93,8 @@ internal sealed class DicomVolume
                 // Ignore non-DICOM or incompatible files in the folder.
             }
         }
+
+        progress?.Report(new LoadProgress(90, 100, "正在整理 DICOM 切片...", "文件读取完成"));
 
         if (slices.Count == 0)
         {
@@ -124,6 +137,7 @@ internal sealed class DicomVolume
             }
         }
 
+        progress?.Report(new LoadProgress(100, 100, "DICOM 加载完成", "文件读取完成"));
         return new DicomVolume
         {
             SourcePath = folder,
@@ -133,13 +147,102 @@ internal sealed class DicomVolume
         };
     }
 
-    public static DicomVolume LoadFromNifti(string path)
+    public static DicomVolume LoadFromNifti(string path, IProgress<LoadProgress>? progress = null)
+    {
+        NiftiVolumeData volume = ReadNiftiVolume(path, progress, 0, 100, "正在读取 NIfTI 文件");
+
+        return new DicomVolume
+        {
+            SourcePath = path,
+            SourceFiles = new[] { path },
+            Voxels = volume.Voxels,
+            Orientation = CreateDefaultNiftiOrientation()
+        };
+    }
+
+    public static DicomVolume LoadFromNiftiFolder(string folder, string primaryPath, IProgress<LoadProgress>? progress = null)
+    {
+        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+        {
+            throw new DirectoryNotFoundException("Could not locate the selected folder.");
+        }
+
+        if (string.IsNullOrWhiteSpace(primaryPath) || !File.Exists(primaryPath))
+        {
+            throw new FileNotFoundException("Could not locate the selected NIfTI file.", primaryPath);
+        }
+
+        IReadOnlyList<string> niftiFiles = DiscoverNiftiFiles(folder);
+        int totalFiles = Math.Max(1, niftiFiles.Count);
+        int primaryIndex = Math.Max(0, niftiFiles.ToList().FindIndex(path => string.Equals(path, primaryPath, StringComparison.OrdinalIgnoreCase)));
+        NiftiVolumeData primary = ReadNiftiVolume(primaryPath, progress, GetTotalPercent(primaryIndex, totalFiles, 0), GetTotalPercent(primaryIndex, totalFiles, 100), $"正在读取原始 NIfTI {primaryIndex + 1}/{totalFiles}");
+        var overlays = new List<NiftiOverlayLayer>();
+        Color[] defaultColors = [Color.Lime, Color.Red, Color.DeepSkyBlue, Color.Yellow, Color.Magenta, Color.Orange, Color.Cyan, Color.White];
+
+        for (int fileIndex = 0; fileIndex < niftiFiles.Count; fileIndex++)
+        {
+            string path = niftiFiles[fileIndex];
+            if (string.Equals(path, primaryPath, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            try
+            {
+                NiftiVolumeData overlay = ReadNiftiVolume(path, progress, GetTotalPercent(fileIndex, totalFiles, 0), GetTotalPercent(fileIndex, totalFiles, 100), $"正在读取叠加层 {fileIndex + 1}/{totalFiles}");
+                if (overlay.Width != primary.Width || overlay.Height != primary.Height || overlay.Depth != primary.Depth)
+                {
+                    continue;
+                }
+
+                overlays.Add(new NiftiOverlayLayer
+                {
+                    Path = path,
+                    Name = Path.GetFileName(path),
+                    Voxels = overlay.Voxels,
+                    Color = defaultColors[overlays.Count % defaultColors.Length]
+                });
+            }
+            catch
+            {
+                // Ignore incompatible NIfTI overlays in the folder.
+            }
+        }
+
+        progress?.Report(new LoadProgress(100, 100, "NIfTI 文件夹加载完成", "文件读取完成"));
+
+        return new DicomVolume
+        {
+            SourcePath = primaryPath,
+            SourceFiles = new[] { primaryPath },
+            Voxels = primary.Voxels,
+            Orientation = CreateDefaultNiftiOrientation(),
+            Overlays = overlays
+        };
+    }
+
+    public static IReadOnlyList<string> DiscoverNiftiFiles(string folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+        {
+            return [];
+        }
+
+        return Directory
+            .EnumerateFiles(folder)
+            .Where(path => path.EndsWith(".nii", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".nii.gz", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static NiftiVolumeData ReadNiftiVolume(string path, IProgress<LoadProgress>? progress = null, int totalStartPercent = 0, int totalEndPercent = 100, string totalMessage = "正在读取 NIfTI 文件")
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
         {
             throw new FileNotFoundException("Could not locate the selected NIfTI file.", path);
         }
 
+        progress?.Report(new LoadProgress(totalStartPercent, 0, totalMessage, Path.GetFileName(path)));
         using Stream stream = OpenNiftiStream(path);
         using var reader = new BinaryReader(stream);
 
@@ -191,20 +294,41 @@ internal sealed class DicomVolume
                     voxels[z, y, x] = ReadNiftiValue(reader, datatype, bitpix);
                 }
             }
+
+            int currentPercent = GetPercent(z + 1, depth);
+            int totalPercent = totalStartPercent + (int)Math.Round(((totalEndPercent - totalStartPercent) * currentPercent) / 100d);
+            progress?.Report(new LoadProgress(totalPercent, currentPercent, totalMessage, Path.GetFileName(path)));
         }
 
-        return new DicomVolume
+        return new NiftiVolumeData
         {
-            SourcePath = path,
-            SourceFiles = new[] { path },
             Voxels = voxels,
-            Orientation = new OrientationInfo
-            {
-                FlipAxialVertical = true,
-                FlipCoronalVertical = true,
-                FlipSagittalVertical = true,
-                FlipSagittalHorizontal = false
-            }
+            Width = width,
+            Height = height,
+            Depth = depth
+        };
+    }
+
+    private static int GetPercent(int completed, int total)
+    {
+        return Math.Clamp((int)Math.Round((completed / Math.Max(1d, total)) * 100d), 0, 100);
+    }
+
+    private static int GetTotalPercent(int fileIndex, int fileCount, int currentFilePercent)
+    {
+        double completedFiles = Math.Clamp(fileIndex, 0, Math.Max(0, fileCount));
+        double percent = ((completedFiles + (Math.Clamp(currentFilePercent, 0, 100) / 100d)) / Math.Max(1d, fileCount)) * 100d;
+        return Math.Clamp((int)Math.Round(percent), 0, 100);
+    }
+
+    private static OrientationInfo CreateDefaultNiftiOrientation()
+    {
+        return new OrientationInfo
+        {
+            FlipAxialVertical = true,
+            FlipCoronalVertical = true,
+            FlipSagittalVertical = true,
+            FlipSagittalHorizontal = false
         };
     }
 
@@ -434,6 +558,14 @@ internal sealed class DicomVolume
         public required bool FlipCoronalVertical { get; init; }
         public required bool FlipSagittalVertical { get; init; }
         public required bool FlipSagittalHorizontal { get; init; }
+    }
+
+    private sealed class NiftiVolumeData
+    {
+        public required float[,,] Voxels { get; init; }
+        public required int Width { get; init; }
+        public required int Height { get; init; }
+        public required int Depth { get; init; }
     }
 
     private readonly record struct Vector3D(double X, double Y, double Z)

@@ -12,10 +12,12 @@ internal sealed class ViewerPane : UserControl
     private readonly Label _placeholderLabel;
     private readonly Panel _layerIndicator;
 
+    private Point? _crosshairPoint;
     private int _currentLayer;
     private int _totalLayers;
 
     public event EventHandler<int>? ScrollRequested;
+    public event EventHandler<Point>? ImageClicked;
 
     public ViewerPane(string title, bool placeholder = false)
     {
@@ -55,7 +57,7 @@ internal sealed class ViewerPane : UserControl
 
         _placeholderLabel = new Label
         {
-            Text = placeholder ? "3D reconstruction placeholder" : string.Empty,
+            Text = placeholder ? "3D 重建占位图" : string.Empty,
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = Color.Silver,
@@ -78,6 +80,8 @@ internal sealed class ViewerPane : UserControl
         Controls.Add(_contentPanel);
         Controls.Add(_titleLabel);
 
+        _pictureBox.Paint += PictureBox_Paint;
+        _pictureBox.MouseDown += PictureBox_MouseDown;
         MouseWheel += OnMouseWheel;
         _scrollPanel.MouseWheel += OnMouseWheel;
         _pictureBox.MouseWheel += OnMouseWheel;
@@ -93,7 +97,7 @@ internal sealed class ViewerPane : UserControl
         _placeholderLabel.Visible = image is null;
         if (image is null)
         {
-            _placeholderLabel.Text = "No image loaded";
+            _placeholderLabel.Text = "未加载图像";
             _pictureBox.Image = null;
             _pictureBox.Visible = false;
             CenterDisplayedContent();
@@ -104,7 +108,14 @@ internal sealed class ViewerPane : UserControl
         _pictureBox.Visible = true;
         _pictureBox.Image = image;
         _pictureBox.Size = image.Size;
+        _pictureBox.Invalidate();
         CenterDisplayedContent();
+    }
+
+    public void SetCrosshairPosition(Point? point)
+    {
+        _crosshairPoint = point;
+        _pictureBox.Invalidate();
     }
 
     public void SetPlaceholder(string text)
@@ -114,6 +125,26 @@ internal sealed class ViewerPane : UserControl
         _placeholderLabel.Text = text;
         _placeholderLabel.Visible = true;
         SetLayerPosition(0, 0);
+    }
+
+    public void SetHostedContent(Control? control)
+    {
+        _scrollPanel.Controls.Clear();
+
+        if (control is null)
+        {
+            _scrollPanel.AutoScroll = true;
+            _scrollPanel.Controls.Add(_pictureBox);
+            _scrollPanel.Controls.Add(_placeholderLabel);
+            CenterDisplayedContent();
+            return;
+        }
+
+        _scrollPanel.AutoScroll = false;
+        control.Dock = DockStyle.Fill;
+        _scrollPanel.Controls.Add(control);
+        _placeholderLabel.Visible = false;
+        _pictureBox.Visible = false;
     }
 
     public void SetLayerPosition(int currentLayer, int totalLayers)
@@ -131,6 +162,35 @@ internal sealed class ViewerPane : UserControl
         }
 
         ScrollRequested(this, e.Delta > 0 ? 1 : -1);
+    }
+
+    private void PictureBox_MouseDown(object? sender, MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left || _pictureBox.Image is null)
+        {
+            return;
+        }
+
+        if (e.X < 0 || e.Y < 0 || e.X >= _pictureBox.Image.Width || e.Y >= _pictureBox.Image.Height)
+        {
+            return;
+        }
+
+        ImageClicked?.Invoke(this, new Point(e.X, e.Y));
+    }
+
+    private void PictureBox_Paint(object? sender, PaintEventArgs e)
+    {
+        if (_pictureBox.Image is null || _crosshairPoint is null)
+        {
+            return;
+        }
+
+        int x = Math.Clamp(_crosshairPoint.Value.X, 0, _pictureBox.Image.Width - 1);
+        int y = Math.Clamp(_crosshairPoint.Value.Y, 0, _pictureBox.Image.Height - 1);
+        using var pen = new Pen(Color.OrangeRed, 1.5f);
+        e.Graphics.DrawLine(pen, x, 0, x, _pictureBox.Image.Height - 1);
+        e.Graphics.DrawLine(pen, 0, y, _pictureBox.Image.Width - 1, y);
     }
 
     private void LayerIndicator_Paint(object? sender, PaintEventArgs e)

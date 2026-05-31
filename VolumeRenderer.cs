@@ -5,6 +5,8 @@ namespace DicomViewer;
 
 internal static class VolumeRenderer
 {
+    private const float OverlayAlpha = 0.45f;
+
     public static Bitmap RenderAxial(DicomVolume volume, int sliceIndex)
     {
         sliceIndex = Math.Clamp(sliceIndex, 0, volume.Depth - 1);
@@ -21,7 +23,7 @@ internal static class VolumeRenderer
             buffer = FlipVertical(buffer);
         }
 
-        return ToBitmap(buffer);
+        return ToBitmap(buffer, volume.Overlays, (layer, y, x) => layer.Voxels[sliceIndex, y, x]);
     }
 
     public static Bitmap RenderCoronal(DicomVolume volume, int rowIndex)
@@ -40,7 +42,7 @@ internal static class VolumeRenderer
             buffer = FlipVertical(buffer);
         }
 
-        return ToBitmap(buffer);
+        return ToBitmap(buffer, volume.Overlays, (layer, y, x) => layer.Voxels[y, rowIndex, x]);
     }
 
     public static Bitmap RenderSagittal(DicomVolume volume, int columnIndex)
@@ -64,7 +66,7 @@ internal static class VolumeRenderer
             buffer = FlipHorizontal(buffer);
         }
 
-        return ToBitmap(buffer);
+        return ToBitmap(buffer, volume.Overlays, (layer, y, x) => layer.Voxels[y, x, columnIndex]);
     }
 
     private static float[,] FlipVertical(float[,] values)
@@ -93,7 +95,7 @@ internal static class VolumeRenderer
         return flipped;
     }
 
-    private static Bitmap ToBitmap(float[,] values)
+    private static Bitmap ToBitmap(float[,] values, IReadOnlyList<NiftiOverlayLayer> overlays, Func<NiftiOverlayLayer, int, int, float> overlayValueSelector)
     {
         int height = values.GetLength(0);
         int width = values.GetLength(1);
@@ -121,15 +123,36 @@ internal static class VolumeRenderer
                 for (int x = 0; x < width; x++)
                 {
                     byte gray = (byte)Math.Clamp((int)(((values[y, x] - min) / range) * 255f), 0, 255);
+                    int r = gray;
+                    int g = gray;
+                    int b = gray;
+
+                    foreach (NiftiOverlayLayer overlay in overlays)
+                    {
+                        if (!overlay.Visible || Math.Abs(overlayValueSelector(overlay, y, x)) <= 1e-6f)
+                        {
+                            continue;
+                        }
+
+                        r = Blend(r, overlay.Color.R);
+                        g = Blend(g, overlay.Color.G);
+                        b = Blend(b, overlay.Color.B);
+                    }
+
                     int offset = x * 3;
-                    row[offset] = gray;
-                    row[offset + 1] = gray;
-                    row[offset + 2] = gray;
+                    row[offset] = (byte)b;
+                    row[offset + 1] = (byte)g;
+                    row[offset + 2] = (byte)r;
                 }
             }
         }
 
         bitmap.UnlockBits(data);
         return bitmap;
+    }
+
+    private static int Blend(int baseValue, int overlayValue)
+    {
+        return Math.Clamp((int)Math.Round((baseValue * (1f - OverlayAlpha)) + (overlayValue * OverlayAlpha)), 0, 255);
     }
 }
