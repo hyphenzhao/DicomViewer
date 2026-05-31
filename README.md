@@ -1,42 +1,93 @@
 # DicomViewer
 
-Windows desktop medical volume viewer for DICOM series and NIfTI volumes.
+DicomViewer 是一个基于 .NET 8 Windows Forms 的医学影像体数据查看器，支持 DICOM 序列和 NIfTI 体数据浏览。
 
-## Current UI structure
+## 主要功能
 
-- Left navigation panel
-  - **Load DICOM files...** button
-  - status summary for the loaded study or volume
-- Main viewer area with 4 panes
-  - **Axial**
-  - **Coronal**
-  - **Sagittal**
-  - **3D** placeholder
+- 加载 DICOM 文件夹并自动组装为 3D 体数据
+- 加载单个 NIfTI 文件，支持 `.nii` 和 `.nii.gz`
+- 加载 NIfTI 文件夹，并由用户手动选择哪个文件作为原始 MRI 图像
+- 将同尺寸的其它 NIfTI 文件作为 2D 叠加层显示
+- 支持为每个叠加层设置颜色和显示/隐藏状态
+- 支持轴位、冠状位、矢状位三视图联动
+- 支持 3D 重建与基础 3D 视图交互
+- 加载数据时显示进度窗口
 
-## Current implementation status
+## 界面结构
 
-- Sidebar-driven loading workflow for volumetric medical image data
-- Loads a DICOM series by scanning the selected folder for readable slices
-- Filters slices to a consistent series and image size before assembling the volume
-- Orders DICOM slices using spatial metadata when available, with tag-based fallbacks
-- Loads NIfTI-1 volumes, including `.nii` and gzip-compressed `.nii.gz` files
-- Builds an internal 3D voxel volume representation
-- Renders:
-  - axial slice
-  - coronal reformatted preview
-  - sagittal reformatted preview
-- Applies DICOM rescale and `MONOCHROME1` inversion handling during import
-- Keeps the fourth pane as a placeholder for future 3D reconstruction
-- Each pane is independently scrollable
+- 左侧导航区
+  - 加载 DICOM 文件夹
+  - 加载单个 NIfTI 文件
+  - 加载 NIfTI 文件夹
+  - 3D 重建设置
+  - 当前加载数据状态
+- 中间视图区
+  - 轴位
+  - 冠状位
+  - 矢状位
+  - 3D 视图
+- 右侧叠加层工作区
+  - 查看所有可用叠加层
+  - 勾选显示或隐藏叠加层
+  - 为每个叠加层选择 2D 显示颜色
 
-## Notes
+## NIfTI 文件夹工作流
 
-- Implemented as a Windows Forms desktop application on .NET 8.
-- The layout is desktop-style and viewer-oriented, but it is not a native MFC/ATL C++ application.
+如果一个文件夹中同时包含原始 MRI、分割结果、掩膜、厚度图等多个 NIfTI 文件，程序不会依赖文件名自动判断原始图像。
 
-## Planned next steps
+加载 NIfTI 文件夹时：
 
-- Window/level controls
-- Crosshair sync between views
-- Zoom/pan tools
-- Real 3D reconstruction pane
+1. 选择包含 `.nii` 或 `.nii.gz` 的文件夹。
+2. 在弹窗中选择作为原始 MRI 图像显示的 NIfTI 文件。
+3. 程序读取其它同尺寸 NIfTI 文件作为叠加层。
+4. 在右侧工作区为叠加层设置颜色或隐藏状态。
+
+> 当前仅按体素尺寸判断叠加层是否可叠加，不会自动判断空间配准质量。
+
+## 三视图联动
+
+轴位、冠状位、矢状位之间支持联动：
+
+- 滚轮切换某一视图切片时，其他视图的参考线会同步更新。
+- 点击某一视图中的图像位置时，会同步更新另外两个视图的切片位置。
+- 每个 2D 视图显示对应位置的橙色十字参考线。
+
+## 加载进度
+
+加载 DICOM 或 NIfTI 数据时会弹出进度窗口：
+
+- 上方进度条表示总进度。
+- 下方进度条表示当前文件读取进度。
+- 多文件加载时会显示当前正在读取的文件序号和文件名。
+
+## 3D 重建
+
+程序提供基础 3D 重建入口：
+
+- 可选择 CT 骨骼、CT 软组织、MRI 脑部或自定义预设
+- 可调整阈值和平滑次数
+- 生成后可在 3D 视图中查看并用鼠标旋转/缩放
+
+## 技术说明
+
+- 平台：Windows
+- 框架：.NET 8 Windows Forms
+- DICOM 读取：fo-dicom
+- NIfTI 支持：内置 NIfTI-1 读取逻辑
+- 支持格式：DICOM、NIfTI `.nii`、NIfTI `.nii.gz`
+
+## 当前限制
+
+- NIfTI 叠加层只按数组尺寸判断是否匹配。
+- 尚未解析 NIfTI affine、qform、sform 做严格空间配准。
+- 叠加层按非零体素半透明显示。
+- 3D 重建为基础实现，适合预览，不等同于专业医学诊断系统。
+
+## 后续可改进方向
+
+- 窗宽/窗位调节
+- 2D 缩放和平移工具
+- NIfTI 空间矩阵解析与配准检查
+- 分割层透明度调节
+- 多标签分割颜色表
+- 更高质量的 3D 体绘制或等值面重建
