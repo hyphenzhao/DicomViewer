@@ -13,6 +13,8 @@ internal sealed class DicomVolume
     public required float[,,] Voxels { get; init; }
     public required OrientationInfo Orientation { get; init; }
     public IReadOnlyList<NiftiOverlayLayer> Overlays { get; init; } = [];
+    public bool ShowOriginalIn2D { get; set; } = true;
+    public bool UseOriginalFor3D { get; set; } = true;
 
     public int Depth => Voxels.GetLength(0);
     public int Height => Voxels.GetLength(1);
@@ -195,12 +197,16 @@ internal sealed class DicomVolume
                     continue;
                 }
 
+                var (kind, anatomyStructure, canBuild3D) = ClassifyOverlay(path);
                 overlays.Add(new NiftiOverlayLayer
                 {
                     Path = path,
                     Name = Path.GetFileName(path),
                     Voxels = overlay.Voxels,
-                    Color = defaultColors[overlays.Count % defaultColors.Length]
+                    Color = defaultColors[overlays.Count % defaultColors.Length],
+                    Kind = kind,
+                    AnatomyStructure = anatomyStructure,
+                    CanBuild3D = canBuild3D
                 });
             }
             catch
@@ -330,6 +336,52 @@ internal sealed class DicomVolume
             FlipSagittalVertical = true,
             FlipSagittalHorizontal = false
         };
+    }
+
+    private static (OverlayKind Kind, string AnatomyStructure, bool CanBuild3D) ClassifyOverlay(string path)
+    {
+        string name = Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
+        if (name.EndsWith(".nii", StringComparison.OrdinalIgnoreCase))
+        {
+            name = Path.GetFileNameWithoutExtension(name).ToLowerInvariant();
+        }
+
+        OverlayKind kind = OverlayKind.Unknown;
+        bool canBuild3D = true;
+        if (name.Contains("thickness", StringComparison.OrdinalIgnoreCase))
+        {
+            kind = OverlayKind.Thickness;
+            canBuild3D = false;
+        }
+        else if (name.Contains("layer", StringComparison.OrdinalIgnoreCase))
+        {
+            kind = OverlayKind.Layering;
+        }
+        else if (name.Contains("morph", StringComparison.OrdinalIgnoreCase))
+        {
+            kind = OverlayKind.Morphology;
+        }
+        else if (name.Contains("label", StringComparison.OrdinalIgnoreCase))
+        {
+            kind = OverlayKind.LabelMap;
+        }
+        else if (name.Contains("mask", StringComparison.OrdinalIgnoreCase) || name.Contains("seg", StringComparison.OrdinalIgnoreCase))
+        {
+            kind = OverlayKind.Mask;
+        }
+
+        string anatomyStructure = "其它";
+        if (name.Contains("femur", StringComparison.OrdinalIgnoreCase)) anatomyStructure = "股骨";
+        else if (name.Contains("tibia", StringComparison.OrdinalIgnoreCase)) anatomyStructure = "胫骨";
+        else if (name.Contains("patella", StringComparison.OrdinalIgnoreCase)) anatomyStructure = "髌骨";
+        else if (name.Contains("cartilage", StringComparison.OrdinalIgnoreCase)) anatomyStructure = "软骨";
+        else if (name.Contains("meniscus", StringComparison.OrdinalIgnoreCase)) anatomyStructure = "半月板";
+        else if (name.Contains("acl", StringComparison.OrdinalIgnoreCase)) anatomyStructure = "ACL 前交叉韧带";
+        else if (name.Contains("pcl", StringComparison.OrdinalIgnoreCase)) anatomyStructure = "PCL 后交叉韧带";
+        else if (name.Contains("mcl", StringComparison.OrdinalIgnoreCase)) anatomyStructure = "MCL 内侧副韧带";
+        else if (name.Contains("lcl", StringComparison.OrdinalIgnoreCase)) anatomyStructure = "LCL 外侧副韧带";
+
+        return (kind, anatomyStructure, canBuild3D);
     }
 
     private static List<string> DiscoverSeriesFiles(string folder)

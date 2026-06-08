@@ -9,13 +9,18 @@ public sealed class MainForm : Form
     private Button _loadButton;
     private Button _loadNiftiButton;
     private Button _loadNiftiFolderButton;
-    private Button _rebuild3dButton;
+    private Button _rebuildOriginalMriButton;
+    private Button _rebuildSegmentedMriButton;
     private ComboBox _presetComboBox;
     private TrackBar _thresholdTrackBar;
     private Label _thresholdLabel;
     private NumericUpDown _smoothingInput;
     private Label _statusLabel;
     private FlowLayoutPanel _overlayPanel;
+    private FlowLayoutPanel _meshVisibilityPanel;
+    private Panel _reconstructionHostPanel;
+    private CheckBox _showOriginal2dCheckBox;
+    private CheckBox _useOriginal3dCheckBox;
     private readonly TableLayoutPanel _layoutRoot;
     private readonly TableLayoutPanel _viewerGrid;
     private readonly Panel _navPanel;
@@ -74,6 +79,7 @@ public sealed class MainForm : Form
         _reconstructionPane = new ViewerPane("3D", placeholder: true);
         _reconstructionPane.SetPlaceholder("3D 重建占位图\r\n（稍后可用）");
         _volumeRenderControl = new VolumeRenderControl();
+        _reconstructionHostPanel = BuildReconstructionHostPanel();
 
         _axialPane.ScrollRequested += (_, delta) => ChangeAxialSlice(delta);
         _coronalPane.ScrollRequested += (_, delta) => ChangeCoronalSlice(delta);
@@ -85,13 +91,14 @@ public sealed class MainForm : Form
         _viewerGrid.Controls.Add(_axialPane, 0, 0);
         _viewerGrid.Controls.Add(_coronalPane, 1, 0);
         _viewerGrid.Controls.Add(_sagittalPane, 0, 1);
-        _viewerGrid.Controls.Add(_reconstructionPane, 1, 1);
+        _viewerGrid.Controls.Add(_reconstructionHostPanel, 1, 1);
 
         _layoutRoot.Controls.Add(_navPanel, 0, 0);
         _layoutRoot.Controls.Add(_viewerGrid, 1, 0);
         _layoutRoot.Controls.Add(_overlayWorkspacePanel, 2, 0);
 
         Controls.Add(_layoutRoot);
+        RefreshOriginalMriControls();
     }
 
     private Panel BuildNavigationPanel()
@@ -199,9 +206,9 @@ public sealed class MainForm : Form
         _loadNiftiFolderButton.FlatAppearance.BorderSize = 0;
         _loadNiftiFolderButton.Click += LoadNiftiFolderButton_Click;
 
-        _rebuild3dButton = new Button
+        _rebuildOriginalMriButton = new Button
         {
-            Text = "3D 重建并查看",
+            Text = "原始 MRI 重建",
             Dock = DockStyle.Top,
             AutoSize = false,
             Height = 42,
@@ -215,8 +222,27 @@ public sealed class MainForm : Form
             FlatStyle = FlatStyle.Flat,
             Enabled = false
         };
-        _rebuild3dButton.FlatAppearance.BorderSize = 0;
-        _rebuild3dButton.Click += Rebuild3dButton_Click;
+        _rebuildOriginalMriButton.FlatAppearance.BorderSize = 0;
+        _rebuildOriginalMriButton.Click += RebuildOriginalMriButton_Click;
+
+        _rebuildSegmentedMriButton = new Button
+        {
+            Text = "已分割 MRI 重建",
+            Dock = DockStyle.Top,
+            AutoSize = false,
+            Height = 42,
+            Width = 200,
+            MinimumSize = new Size(200, 42),
+            Margin = new Padding(0, 0, 0, 12),
+            TextAlign = ContentAlignment.MiddleCenter,
+            UseVisualStyleBackColor = false,
+            BackColor = Color.FromArgb(0, 122, 204),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Enabled = false
+        };
+        _rebuildSegmentedMriButton.FlatAppearance.BorderSize = 0;
+        _rebuildSegmentedMriButton.Click += RebuildSegmentedMriButton_Click;
 
         var presetLabel = new Label
         {
@@ -297,14 +323,15 @@ public sealed class MainForm : Form
         stack.Controls.Add(_loadButton, 0, 2);
         stack.Controls.Add(_loadNiftiButton, 0, 3);
         stack.Controls.Add(_loadNiftiFolderButton, 0, 4);
-        stack.Controls.Add(_rebuild3dButton, 0, 5);
-        stack.Controls.Add(presetLabel, 0, 6);
-        stack.Controls.Add(_presetComboBox, 0, 7);
-        stack.Controls.Add(_thresholdLabel, 0, 8);
-        stack.Controls.Add(_thresholdTrackBar, 0, 9);
-        stack.Controls.Add(smoothingLabel, 0, 10);
-        stack.Controls.Add(_smoothingInput, 0, 11);
-        stack.Controls.Add(_statusLabel, 0, 12);
+        stack.Controls.Add(_rebuildOriginalMriButton, 0, 5);
+        stack.Controls.Add(_rebuildSegmentedMriButton, 0, 6);
+        stack.Controls.Add(presetLabel, 0, 7);
+        stack.Controls.Add(_presetComboBox, 0, 8);
+        stack.Controls.Add(_thresholdLabel, 0, 9);
+        stack.Controls.Add(_thresholdTrackBar, 0, 10);
+        stack.Controls.Add(smoothingLabel, 0, 11);
+        stack.Controls.Add(_smoothingInput, 0, 12);
+        stack.Controls.Add(_statusLabel, 0, 13);
 
         panel.Controls.Add(stack);
         return panel;
@@ -323,10 +350,11 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 4,
             BackColor = Color.Transparent
         };
         stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
@@ -363,8 +391,102 @@ public sealed class MainForm : Form
 
         stack.Controls.Add(title, 0, 0);
         stack.Controls.Add(subtitle, 0, 1);
-        stack.Controls.Add(_overlayPanel, 0, 2);
+        stack.Controls.Add(BuildOriginalMriControlPanel(), 0, 2);
+        stack.Controls.Add(_overlayPanel, 0, 3);
         panel.Controls.Add(stack);
+        return panel;
+    }
+
+    private Panel BuildReconstructionHostPanel()
+    {
+        var panel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(6),
+            BackColor = Color.FromArgb(30, 30, 30)
+        };
+
+        _reconstructionPane.Dock = DockStyle.Fill;
+        _reconstructionPane.Margin = new Padding(0);
+
+        _meshVisibilityPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 38,
+            AutoScroll = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Padding = new Padding(6, 6, 6, 0),
+            BackColor = Color.FromArgb(45, 45, 48),
+            Visible = false
+        };
+
+        panel.Controls.Add(_reconstructionPane);
+        panel.Controls.Add(_meshVisibilityPanel);
+        return panel;
+    }
+
+    private Panel BuildOriginalMriControlPanel()
+    {
+        var panel = new Panel
+        {
+            Width = 220,
+            Height = 82,
+            Margin = new Padding(0, 0, 0, 12),
+            BackColor = Color.FromArgb(37, 37, 38)
+        };
+
+        var title = new Label
+        {
+            Text = "原始 MRI",
+            ForeColor = Color.White,
+            AutoSize = true,
+            Location = new Point(6, 6),
+            Font = new Font("Segoe UI", 9, FontStyle.Bold)
+        };
+
+        _showOriginal2dCheckBox = new CheckBox
+        {
+            Text = "2D 显示",
+            ForeColor = Color.Gainsboro,
+            Checked = true,
+            Width = 90,
+            Location = new Point(6, 32)
+        };
+        _showOriginal2dCheckBox.CheckedChanged += (_, _) =>
+        {
+            if (_currentVolume is null)
+            {
+                return;
+            }
+
+            _currentVolume.ShowOriginalIn2D = _showOriginal2dCheckBox.Checked;
+            RefreshViews();
+        };
+
+        _useOriginal3dCheckBox = new CheckBox
+        {
+            Text = "参与 3D",
+            ForeColor = Color.Gainsboro,
+            Checked = true,
+            Width = 90,
+            Location = new Point(6, 56)
+        };
+        _useOriginal3dCheckBox.CheckedChanged += (_, _) =>
+        {
+            if (_currentVolume is null)
+            {
+                return;
+            }
+
+            _currentVolume.UseOriginalFor3D = _useOriginal3dCheckBox.Checked;
+            SetRebuildButtonsEnabled(true);
+            _volumeRenderControl.Invalidate();
+        };
+
+        panel.Controls.Add(title);
+        panel.Controls.Add(_showOriginal2dCheckBox);
+        panel.Controls.Add(_useOriginal3dCheckBox);
         return panel;
     }
 
@@ -384,12 +506,14 @@ public sealed class MainForm : Form
         {
             _currentVolume = await LoadVolumeWithProgressAsync(progress => DicomVolume.LoadFromFolder(dialog.SelectedPath, progress));
             _currentMesh = null;
+            RefreshMeshVisibilityPanel();
             _axialIndex = _currentVolume.AxialIndex;
             _coronalIndex = _currentVolume.CoronalIndex;
             _sagittalIndex = _currentVolume.SagittalIndex;
+            RefreshOriginalMriControls();
             RefreshOverlayPanel();
             RefreshViews();
-            _rebuild3dButton.Enabled = true;
+            SetRebuildButtonsEnabled(true);
 
             _statusLabel.Text = $"已从以下位置加载 DICOM 序列：\r\n{Path.GetFileName(dialog.SelectedPath)}\r\n\r\n已加载文件：{_currentVolume.SourceFiles.Count}\r\n已加载切片：{_currentVolume.Depth}\r\n体数据大小：\r\n{_currentVolume.Width} × {_currentVolume.Height} × {_currentVolume.Depth}";
         }
@@ -418,12 +542,14 @@ public sealed class MainForm : Form
         {
             _currentVolume = await LoadVolumeWithProgressAsync(progress => DicomVolume.LoadFromNifti(dialog.FileName, progress));
             _currentMesh = null;
+            RefreshMeshVisibilityPanel();
             _axialIndex = _currentVolume.AxialIndex;
             _coronalIndex = _currentVolume.CoronalIndex;
             _sagittalIndex = _currentVolume.SagittalIndex;
+            RefreshOriginalMriControls();
             RefreshOverlayPanel();
             RefreshViews();
-            _rebuild3dButton.Enabled = true;
+            SetRebuildButtonsEnabled(true);
 
             _statusLabel.Text = $"已从以下位置加载 NIfTI 体数据：\r\n{Path.GetFileName(dialog.FileName)}\r\n\r\n已加载文件：{_currentVolume.SourceFiles.Count}\r\n已加载切片：{_currentVolume.Depth}\r\n体数据大小：\r\n{_currentVolume.Width} × {_currentVolume.Height} × {_currentVolume.Depth}";
         }
@@ -462,12 +588,14 @@ public sealed class MainForm : Form
         {
             _currentVolume = await LoadVolumeWithProgressAsync(progress => DicomVolume.LoadFromNiftiFolder(folderDialog.SelectedPath, primaryPath, progress));
             _currentMesh = null;
+            RefreshMeshVisibilityPanel();
             _axialIndex = _currentVolume.AxialIndex;
             _coronalIndex = _currentVolume.CoronalIndex;
             _sagittalIndex = _currentVolume.SagittalIndex;
+            RefreshOriginalMriControls();
             RefreshOverlayPanel();
             RefreshViews();
-            _rebuild3dButton.Enabled = true;
+            SetRebuildButtonsEnabled(true);
 
             _statusLabel.Text = $"已加载原始 NIfTI：\r\n{Path.GetFileName(primaryPath)}\r\n\r\n叠加层：{_currentVolume.Overlays.Count}\r\n切片：{_currentVolume.Depth}\r\n体数据大小：\r\n{_currentVolume.Width} × {_currentVolume.Height} × {_currentVolume.Depth}";
         }
@@ -557,6 +685,21 @@ public sealed class MainForm : Form
         _loadNiftiFolderButton.Enabled = enabled;
     }
 
+    private void SetRebuildButtonsEnabled(bool enabled)
+    {
+        _rebuildOriginalMriButton.Enabled = enabled && _currentVolume?.UseOriginalFor3D == true;
+        _rebuildSegmentedMriButton.Enabled = enabled && _currentVolume?.Overlays.Any(overlay => overlay.Visible && overlay.CanBuild3D) == true;
+    }
+
+    private void RefreshOriginalMriControls()
+    {
+        bool hasVolume = _currentVolume is not null;
+        _showOriginal2dCheckBox.Enabled = hasVolume;
+        _useOriginal3dCheckBox.Enabled = hasVolume;
+        _showOriginal2dCheckBox.Checked = _currentVolume?.ShowOriginalIn2D ?? true;
+        _useOriginal3dCheckBox.Checked = _currentVolume?.UseOriginalFor3D ?? true;
+    }
+
     private void RefreshOverlayPanel()
     {
         _overlayPanel.Controls.Clear();
@@ -578,8 +721,8 @@ public sealed class MainForm : Form
         {
             var row = new Panel
             {
-                Width = 200,
-                Height = 58,
+                Width = 220,
+                Height = 112,
                 Margin = new Padding(0, 0, 0, 8),
                 BackColor = Color.FromArgb(37, 37, 38)
             };
@@ -590,13 +733,15 @@ public sealed class MainForm : Form
                 ForeColor = Color.Gainsboro,
                 Text = overlay.Name,
                 AutoEllipsis = true,
-                Width = 150,
+                Width = 170,
                 Location = new Point(6, 6)
             };
             visibleCheckBox.CheckedChanged += (_, _) =>
             {
                 overlay.Visible = visibleCheckBox.Checked;
+                SetRebuildButtonsEnabled(_currentVolume is not null);
                 RefreshViews();
+                _volumeRenderControl.Invalidate();
             };
 
             var colorButton = new Button
@@ -605,25 +750,90 @@ public sealed class MainForm : Form
                 FlatStyle = FlatStyle.Flat,
                 Width = 34,
                 Height = 24,
-                Location = new Point(160, 6),
+                Location = new Point(180, 6),
                 Text = string.Empty
             };
             colorButton.FlatAppearance.BorderColor = Color.White;
             colorButton.Click += (_, _) => ChooseOverlayColor(overlay, colorButton);
 
-            var hintLabel = new Label
+            var kindLabel = new Label
             {
-                Text = "非零体素叠加显示",
+                Text = $"类型：{GetOverlayKindDisplayName(overlay.Kind)}",
                 ForeColor = Color.Silver,
                 AutoSize = true,
                 Location = new Point(6, 34)
             };
 
+            var structureComboBox = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Width = 142,
+                Location = new Point(6, 58)
+            };
+            structureComboBox.Items.AddRange(GetAnatomyStructureOptions());
+            structureComboBox.SelectedItem = structureComboBox.Items.Contains(overlay.AnatomyStructure) ? overlay.AnatomyStructure : "其它";
+            structureComboBox.SelectedIndexChanged += (_, _) =>
+            {
+                overlay.AnatomyStructure = structureComboBox.SelectedItem?.ToString() ?? "其它";
+            };
+
+            var build3dCheckBox = new CheckBox
+            {
+                Checked = overlay.CanBuild3D,
+                ForeColor = Color.Gainsboro,
+                Text = "参与 3D",
+                Width = 80,
+                Location = new Point(6, 84)
+            };
+            build3dCheckBox.CheckedChanged += (_, _) =>
+            {
+                overlay.CanBuild3D = build3dCheckBox.Checked;
+                SetRebuildButtonsEnabled(_currentVolume is not null);
+                _volumeRenderControl.Invalidate();
+            };
+
             row.Controls.Add(visibleCheckBox);
             row.Controls.Add(colorButton);
-            row.Controls.Add(hintLabel);
+            row.Controls.Add(kindLabel);
+            row.Controls.Add(structureComboBox);
+            row.Controls.Add(build3dCheckBox);
             _overlayPanel.Controls.Add(row);
         }
+    }
+
+    private static object[] GetAnatomyStructureOptions()
+    {
+        return
+        [
+            "其它",
+            "股骨",
+            "胫骨",
+            "髌骨",
+            "股骨软骨",
+            "胫骨软骨",
+            "髌骨软骨",
+            "软骨",
+            "内侧半月板",
+            "外侧半月板",
+            "半月板",
+            "ACL 前交叉韧带",
+            "PCL 后交叉韧带",
+            "MCL 内侧副韧带",
+            "LCL 外侧副韧带"
+        ];
+    }
+
+    private static string GetOverlayKindDisplayName(OverlayKind kind)
+    {
+        return kind switch
+        {
+            OverlayKind.Mask => "Mask",
+            OverlayKind.LabelMap => "LabelMap",
+            OverlayKind.Thickness => "Thickness",
+            OverlayKind.Layering => "Layering",
+            OverlayKind.Morphology => "Morphology",
+            _ => "Unknown"
+        };
     }
 
     private void ChooseOverlayColor(NiftiOverlayLayer overlay, Button colorButton)
@@ -642,13 +852,59 @@ public sealed class MainForm : Form
         overlay.Color = dialog.Color;
         colorButton.BackColor = dialog.Color;
         RefreshViews();
+        _volumeRenderControl.Invalidate();
+    }
+
+    private void RefreshMeshVisibilityPanel()
+    {
+        _meshVisibilityPanel.Controls.Clear();
+
+        if (_currentMesh is null)
+        {
+            _meshVisibilityPanel.Visible = false;
+            return;
+        }
+
+        if (_currentMesh.Parts.Count == 0)
+        {
+            AddMeshVisibilityCheckBox("原始 MRI", _currentMesh.IsVisible, value => _currentMesh.IsVisible = value);
+        }
+        else
+        {
+            foreach (VolumeMeshPart part in _currentMesh.Parts)
+            {
+                string name = string.IsNullOrWhiteSpace(part.Name) ? part.SourceOverlay?.Name ?? "结构" : part.Name;
+                AddMeshVisibilityCheckBox(name, part.IsVisible, value => part.IsVisible = value);
+            }
+        }
+
+        _meshVisibilityPanel.Visible = _meshVisibilityPanel.Controls.Count > 0;
+    }
+
+    private void AddMeshVisibilityCheckBox(string text, bool isChecked, Action<bool> onChanged)
+    {
+        var checkBox = new CheckBox
+        {
+            Text = text,
+            Checked = isChecked,
+            AutoSize = true,
+            ForeColor = Color.Gainsboro,
+            Margin = new Padding(0, 0, 12, 0)
+        };
+        checkBox.CheckedChanged += (_, _) =>
+        {
+            onChanged(checkBox.Checked);
+            _volumeRenderControl.Invalidate();
+        };
+
+        _meshVisibilityPanel.Controls.Add(checkBox);
     }
 
     private void RefreshViews()
     {
         if (_currentVolume is null)
         {
-            _rebuild3dButton.Enabled = false;
+            SetRebuildButtonsEnabled(false);
             _axialPane.SetImage(null);
             _axialPane.SetCrosshairPosition(null);
             _axialPane.SetLayerPosition(0, 0);
@@ -659,6 +915,7 @@ public sealed class MainForm : Form
             _sagittalPane.SetCrosshairPosition(null);
             _sagittalPane.SetLayerPosition(0, 0);
             _reconstructionPane.SetHostedContent(null);
+            RefreshMeshVisibilityPanel();
             return;
         }
 
@@ -674,7 +931,8 @@ public sealed class MainForm : Form
         if (_currentMesh is null)
         {
             _reconstructionPane.SetHostedContent(null);
-            _reconstructionPane.SetPlaceholder("3D 重建占位图\r\n单击“3D 重建并查看”生成。");
+            _meshVisibilityPanel.Visible = false;
+            _reconstructionPane.SetPlaceholder("3D 重建占位图\r\n选择“原始 MRI 重建”或“已分割 MRI 重建”生成。");
         }
         else
         {
@@ -683,14 +941,20 @@ public sealed class MainForm : Form
         }
     }
 
-    private async void Rebuild3dButton_Click(object? sender, EventArgs e)
+    private async void RebuildOriginalMriButton_Click(object? sender, EventArgs e)
     {
         if (_currentVolume is null)
         {
             return;
         }
 
-        _rebuild3dButton.Enabled = false;
+        if (!_currentVolume.UseOriginalFor3D)
+        {
+            MessageBox.Show(this, "原始 MRI 当前未勾选“参与 3D”。", "3D 重建", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        SetRebuildButtonsEnabled(false);
         _loadButton.Enabled = false;
         _loadNiftiButton.Enabled = false;
         _loadNiftiFolderButton.Enabled = false;
@@ -703,15 +967,16 @@ public sealed class MainForm : Form
 
         try
         {
-            _currentMesh = await Task.Run(() => VolumeRebuilder.Rebuild(_currentVolume, _rebuildSettings, _axialIndex, _coronalIndex, _sagittalIndex, progress));
+            _currentMesh = await Task.Run(() => VolumeRebuilder.RebuildOriginalMri(_currentVolume, _rebuildSettings, _axialIndex, _coronalIndex, _sagittalIndex, progress));
             _volumeRenderControl.SetMesh(_currentMesh);
             _volumeRenderControl.SetPreset(_rebuildSettings.Preset);
             _reconstructionPane.SetHostedContent(_volumeRenderControl);
-            _statusLabel.Text += "\r\n\r\n3D 重建已就绪。";
+            RefreshMeshVisibilityPanel();
+            _statusLabel.Text += "\r\n\r\n原始 MRI 重建已就绪。";
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"重建 3D 体数据失败。\r\n\r\n{ex.Message}", "3D 重建错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(this, $"原始 MRI 重建失败。\r\n\r\n{ex.Message}", "3D 重建错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
@@ -719,7 +984,48 @@ public sealed class MainForm : Form
             _loadButton.Enabled = true;
             _loadNiftiButton.Enabled = true;
             _loadNiftiFolderButton.Enabled = true;
-            _rebuild3dButton.Enabled = _currentVolume is not null;
+            SetRebuildButtonsEnabled(_currentVolume is not null);
+            RefreshViews();
+        }
+    }
+
+    private async void RebuildSegmentedMriButton_Click(object? sender, EventArgs e)
+    {
+        if (_currentVolume is null)
+        {
+            return;
+        }
+
+        SetRebuildButtonsEnabled(false);
+        _loadButton.Enabled = false;
+        _loadNiftiButton.Enabled = false;
+        _loadNiftiFolderButton.Enabled = false;
+
+        using var progressForm = new RebuildProgressForm();
+        progressForm.Show(this);
+        progressForm.BringToFront();
+
+        var progress = new Progress<(int Percent, string Message)>(state => progressForm.Report(state.Percent, state.Message));
+
+        try
+        {
+            _currentMesh = await Task.Run(() => VolumeRebuilder.RebuildSegmentedMri(_currentVolume, _currentVolume.Overlays.Where(overlay => overlay.CanBuild3D), _axialIndex, _coronalIndex, _sagittalIndex, progress));
+            _volumeRenderControl.SetMesh(_currentMesh);
+            _reconstructionPane.SetHostedContent(_volumeRenderControl);
+            RefreshMeshVisibilityPanel();
+            _statusLabel.Text += "\r\n\r\n已分割 MRI 重建已就绪。";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"已分割 MRI 重建失败。\r\n\r\n{ex.Message}", "3D 重建错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            progressForm.Close();
+            _loadButton.Enabled = true;
+            _loadNiftiButton.Enabled = true;
+            _loadNiftiFolderButton.Enabled = true;
+            SetRebuildButtonsEnabled(_currentVolume is not null);
             RefreshViews();
         }
     }
@@ -919,6 +1225,9 @@ public sealed class MainForm : Form
         {
             Vertices = _currentMesh.Vertices,
             Indices = _currentMesh.Indices,
+            Parts = _currentMesh.Parts,
+            IsOriginalMri = _currentMesh.IsOriginalMri,
+            SourceVolume = _currentMesh.SourceVolume,
             SliceCrosshair =
             [
                 new System.Numerics.Vector3(-1f, ((Math.Clamp(_coronalIndex, 0, Math.Max(0, _currentVolume.Height - 1)) / Math.Max(1f, _currentVolume.Height - 1f)) - 0.5f) * -2f, ((Math.Clamp(_axialIndex, 0, Math.Max(0, _currentVolume.Depth - 1)) / Math.Max(1f, _currentVolume.Depth - 1f)) - 0.5f) * 2f),

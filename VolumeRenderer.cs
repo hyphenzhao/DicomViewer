@@ -16,7 +16,7 @@ internal static class VolumeRenderer
 
         for (int y = 0; y < height; y++)
         for (int x = 0; x < width; x++)
-            buffer[y, x] = volume.Voxels[sliceIndex, y, x];
+            buffer[y, x] = volume.ShowOriginalIn2D ? volume.Voxels[sliceIndex, y, x] : 0f;
 
         if (volume.Orientation.FlipAxialVertical)
         {
@@ -35,7 +35,7 @@ internal static class VolumeRenderer
 
         for (int z = 0; z < depth; z++)
         for (int x = 0; x < width; x++)
-            buffer[z, x] = volume.Voxels[z, rowIndex, x];
+            buffer[z, x] = volume.ShowOriginalIn2D ? volume.Voxels[z, rowIndex, x] : 0f;
 
         if (volume.Orientation.FlipCoronalVertical)
         {
@@ -54,7 +54,7 @@ internal static class VolumeRenderer
 
         for (int z = 0; z < depth; z++)
         for (int y = 0; y < height; y++)
-            buffer[z, y] = volume.Voxels[z, y, columnIndex];
+            buffer[z, y] = volume.ShowOriginalIn2D ? volume.Voxels[z, y, columnIndex] : 0f;
 
         if (volume.Orientation.FlipSagittalVertical)
         {
