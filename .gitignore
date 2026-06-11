@@ -16,3 +16,12 @@ Thumbs.db
 # NuGet
 *.nupkg
 packages/
+
+# Codegraph index
+.codegraph/
+
+# External toolboxes
+CartiMorph-Toolbox/
+
+# Test data
+test_data/

@@ -6,9 +6,11 @@ namespace DicomViewer;
 
 public sealed class MainForm : Form
 {
-    private Button _loadButton;
-    private Button _loadNiftiButton;
-    private Button _loadNiftiFolderButton;
+    private ToolStripMenuItem _loadDicomMenuItem;
+    private ToolStripMenuItem _loadNiftiMenuItem;
+    private ToolStripMenuItem _loadNiftiFolderMenuItem;
+    private ToolStripMenuItem _segmentationMenuItem;
+    private ToolStripMenuItem _quantificationMenuItem;
     private Button _rebuildOriginalMriButton;
     private Button _rebuildSegmentedMriButton;
     private ComboBox _presetComboBox;
@@ -35,12 +37,17 @@ public sealed class MainForm : Form
     private DicomVolume? _currentVolume;
     private VolumeMesh? _currentMesh;
     private RebuildSettings _rebuildSettings = new() { Preset = VolumePreset.CtBone, ThresholdRatio = 0.55f, SmoothingPasses = 1 };
+    private readonly PythonSettings _pythonSettings;
+    private readonly CartiMorphPipeline _pipeline;
     private int _axialIndex;
     private int _coronalIndex;
     private int _sagittalIndex;
 
     public MainForm()
     {
+        _pythonSettings = PythonSettings.Load();
+        _pipeline = new CartiMorphPipeline(_pythonSettings);
+
         Text = "DicomViewer";
         MinimumSize = new Size(1200, 800);
         StartPosition = FormStartPosition.CenterScreen;
@@ -97,8 +104,84 @@ public sealed class MainForm : Form
         _layoutRoot.Controls.Add(_viewerGrid, 1, 0);
         _layoutRoot.Controls.Add(_overlayWorkspacePanel, 2, 0);
 
+        var menuStrip = BuildMenuStrip();
         Controls.Add(_layoutRoot);
+        Controls.Add(menuStrip);
         RefreshOriginalMriControls();
+    }
+
+    private MenuStrip BuildMenuStrip()
+    {
+        var menuStrip = new MenuStrip
+        {
+            Dock = DockStyle.Top,
+            BackColor = Color.FromArgb(45, 45, 48),
+            ForeColor = Color.White,
+            Renderer = new ToolStripProfessionalRenderer(new MenuStripColorTable())
+        };
+
+        var fileMenu = new ToolStripMenuItem("文件");
+        fileMenu.DropDownItems.AddRange(
+        [
+            CreateMenuItem("加载 DICOM 文件夹...", (_, _) => LoadDicomButton_Click(null, EventArgs.Empty)),
+            CreateMenuItem("加载 NIfTI 文件...", (_, _) => LoadNiftiButton_Click(null, EventArgs.Empty)),
+            CreateMenuItem("加载 NIfTI 文件夹...", (_, _) => LoadNiftiFolderButton_Click(null, EventArgs.Empty))
+        ]);
+
+        _loadDicomMenuItem = (ToolStripMenuItem)fileMenu.DropDownItems[0];
+        _loadNiftiMenuItem = (ToolStripMenuItem)fileMenu.DropDownItems[1];
+        _loadNiftiFolderMenuItem = (ToolStripMenuItem)fileMenu.DropDownItems[2];
+
+        var toolsMenu = new ToolStripMenuItem("工具");
+        _segmentationMenuItem = new ToolStripMenuItem("膝关节分割")
+        {
+            ForeColor = Color.White,
+            BackColor = Color.FromArgb(45, 45, 48),
+            Enabled = false
+        };
+        _segmentationMenuItem.Click += SegmentationMenuItem_Click;
+        _quantificationMenuItem = new ToolStripMenuItem("膝关节量化分析")
+        {
+            ForeColor = Color.White,
+            BackColor = Color.FromArgb(45, 45, 48),
+            Enabled = false
+        };
+        _quantificationMenuItem.Click += QuantificationMenuItem_Click;
+
+        toolsMenu.DropDownItems.AddRange(
+        [
+            CreateMenuItem("设置...", SettingsMenuItem_Click),
+            new ToolStripSeparator(),
+            _segmentationMenuItem,
+            _quantificationMenuItem
+        ]);
+
+        menuStrip.Items.Add(fileMenu);
+        menuStrip.Items.Add(toolsMenu);
+        return menuStrip;
+    }
+
+    private static ToolStripMenuItem CreateMenuItem(string text, EventHandler onClick)
+    {
+        var item = new ToolStripMenuItem
+        {
+            Text = text,
+            ForeColor = Color.White,
+            BackColor = Color.FromArgb(45, 45, 48)
+        };
+        item.Click += onClick;
+        return item;
+    }
+
+    private sealed class MenuStripColorTable : ProfessionalColorTable
+    {
+        public override Color MenuItemSelected => Color.FromArgb(0, 122, 204);
+        public override Color MenuItemBorder => Color.FromArgb(0, 122, 204);
+        public override Color MenuBorder => Color.FromArgb(62, 62, 64);
+        public override Color ToolStripDropDownBackground => Color.FromArgb(45, 45, 48);
+        public override Color ImageMarginGradientBegin => Color.FromArgb(45, 45, 48);
+        public override Color ImageMarginGradientMiddle => Color.FromArgb(45, 45, 48);
+        public override Color ImageMarginGradientEnd => Color.FromArgb(45, 45, 48);
     }
 
     private Panel BuildNavigationPanel()
@@ -114,13 +197,10 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 12,
+            RowCount = 10,
             BackColor = Color.Transparent
         };
         stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-        stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -151,60 +231,6 @@ public sealed class MainForm : Form
             Margin = new Padding(0, 0, 0, 12),
             ForeColor = Color.Gainsboro
         };
-
-        _loadButton = new Button
-        {
-            Text = "加载 DICOM 文件...",
-            Dock = DockStyle.Top,
-            AutoSize = false,
-            Height = 42,
-            Width = 200,
-            MinimumSize = new Size(200, 42),
-            Margin = new Padding(0, 0, 0, 12),
-            TextAlign = ContentAlignment.MiddleCenter,
-            UseVisualStyleBackColor = false,
-            BackColor = Color.FromArgb(0, 122, 204),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat
-        };
-        _loadButton.FlatAppearance.BorderSize = 0;
-        _loadButton.Click += LoadDicomButton_Click;
-
-        _loadNiftiButton = new Button
-        {
-            Text = "加载 NIfTI 文件...",
-            Dock = DockStyle.Top,
-            AutoSize = false,
-            Height = 42,
-            Width = 200,
-            MinimumSize = new Size(200, 42),
-            Margin = new Padding(0, 0, 0, 12),
-            TextAlign = ContentAlignment.MiddleCenter,
-            UseVisualStyleBackColor = false,
-            BackColor = Color.FromArgb(0, 122, 204),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat
-        };
-        _loadNiftiButton.FlatAppearance.BorderSize = 0;
-        _loadNiftiButton.Click += LoadNiftiButton_Click;
-
-        _loadNiftiFolderButton = new Button
-        {
-            Text = "加载 NIfTI 文件夹...",
-            Dock = DockStyle.Top,
-            AutoSize = false,
-            Height = 42,
-            Width = 200,
-            MinimumSize = new Size(200, 42),
-            Margin = new Padding(0, 0, 0, 12),
-            TextAlign = ContentAlignment.MiddleCenter,
-            UseVisualStyleBackColor = false,
-            BackColor = Color.FromArgb(0, 122, 204),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat
-        };
-        _loadNiftiFolderButton.FlatAppearance.BorderSize = 0;
-        _loadNiftiFolderButton.Click += LoadNiftiFolderButton_Click;
 
         _rebuildOriginalMriButton = new Button
         {
@@ -320,18 +346,15 @@ public sealed class MainForm : Form
 
         stack.Controls.Add(title, 0, 0);
         stack.Controls.Add(subtitle, 0, 1);
-        stack.Controls.Add(_loadButton, 0, 2);
-        stack.Controls.Add(_loadNiftiButton, 0, 3);
-        stack.Controls.Add(_loadNiftiFolderButton, 0, 4);
-        stack.Controls.Add(_rebuildOriginalMriButton, 0, 5);
-        stack.Controls.Add(_rebuildSegmentedMriButton, 0, 6);
-        stack.Controls.Add(presetLabel, 0, 7);
-        stack.Controls.Add(_presetComboBox, 0, 8);
-        stack.Controls.Add(_thresholdLabel, 0, 9);
-        stack.Controls.Add(_thresholdTrackBar, 0, 10);
-        stack.Controls.Add(smoothingLabel, 0, 11);
-        stack.Controls.Add(_smoothingInput, 0, 12);
-        stack.Controls.Add(_statusLabel, 0, 13);
+        stack.Controls.Add(_rebuildOriginalMriButton, 0, 2);
+        stack.Controls.Add(_rebuildSegmentedMriButton, 0, 3);
+        stack.Controls.Add(presetLabel, 0, 4);
+        stack.Controls.Add(_presetComboBox, 0, 5);
+        stack.Controls.Add(_thresholdLabel, 0, 6);
+        stack.Controls.Add(_thresholdTrackBar, 0, 7);
+        stack.Controls.Add(smoothingLabel, 0, 8);
+        stack.Controls.Add(_smoothingInput, 0, 9);
+        stack.Controls.Add(_statusLabel, 0, 10);
 
         panel.Controls.Add(stack);
         return panel;
@@ -680,15 +703,16 @@ public sealed class MainForm : Form
 
     private void SetLoadButtonsEnabled(bool enabled)
     {
-        _loadButton.Enabled = enabled;
-        _loadNiftiButton.Enabled = enabled;
-        _loadNiftiFolderButton.Enabled = enabled;
+        _loadDicomMenuItem.Enabled = enabled;
+        _loadNiftiMenuItem.Enabled = enabled;
+        _loadNiftiFolderMenuItem.Enabled = enabled;
     }
 
     private void SetRebuildButtonsEnabled(bool enabled)
     {
         _rebuildOriginalMriButton.Enabled = enabled && _currentVolume?.UseOriginalFor3D == true;
         _rebuildSegmentedMriButton.Enabled = enabled && _currentVolume?.Overlays.Any(overlay => overlay.Visible && overlay.CanBuild3D) == true;
+        UpdateAiMenuItems();
     }
 
     private void RefreshOriginalMriControls()
@@ -955,9 +979,7 @@ public sealed class MainForm : Form
         }
 
         SetRebuildButtonsEnabled(false);
-        _loadButton.Enabled = false;
-        _loadNiftiButton.Enabled = false;
-        _loadNiftiFolderButton.Enabled = false;
+        SetLoadButtonsEnabled(false);
 
         using var progressForm = new RebuildProgressForm();
         progressForm.Show(this);
@@ -981,9 +1003,7 @@ public sealed class MainForm : Form
         finally
         {
             progressForm.Close();
-            _loadButton.Enabled = true;
-            _loadNiftiButton.Enabled = true;
-            _loadNiftiFolderButton.Enabled = true;
+            SetLoadButtonsEnabled(true);
             SetRebuildButtonsEnabled(_currentVolume is not null);
             RefreshViews();
         }
@@ -997,9 +1017,7 @@ public sealed class MainForm : Form
         }
 
         SetRebuildButtonsEnabled(false);
-        _loadButton.Enabled = false;
-        _loadNiftiButton.Enabled = false;
-        _loadNiftiFolderButton.Enabled = false;
+        SetLoadButtonsEnabled(false);
 
         using var progressForm = new RebuildProgressForm();
         progressForm.Show(this);
@@ -1022,9 +1040,7 @@ public sealed class MainForm : Form
         finally
         {
             progressForm.Close();
-            _loadButton.Enabled = true;
-            _loadNiftiButton.Enabled = true;
-            _loadNiftiFolderButton.Enabled = true;
+            SetLoadButtonsEnabled(true);
             SetRebuildButtonsEnabled(_currentVolume is not null);
             RefreshViews();
         }
@@ -1242,5 +1258,188 @@ public sealed class MainForm : Form
         };
 
         _volumeRenderControl.SetMesh(_currentMesh);
+    }
+
+    private void UpdateAiMenuItems()
+    {
+        bool hasVolume = _currentVolume is not null;
+        bool pythonReady = _pythonSettings.IsConfigured;
+        _segmentationMenuItem.Enabled = hasVolume && pythonReady;
+        _quantificationMenuItem.Enabled = hasVolume && pythonReady && _currentVolume?.Overlays.Any(o => o.Kind == OverlayKind.LabelMap) == true;
+    }
+
+    private void SettingsMenuItem_Click(object? sender, EventArgs e)
+    {
+        using var dialog = new PythonSettingsDialog(_pythonSettings);
+        if (dialog.ShowDialog(this) == DialogResult.OK)
+        {
+            UpdateAiMenuItems();
+        }
+    }
+
+    private async void SegmentationMenuItem_Click(object? sender, EventArgs e)
+    {
+        if (_currentVolume is null)
+        {
+            return;
+        }
+
+        SetLoadButtonsEnabled(false);
+        _segmentationMenuItem.Enabled = false;
+
+        // Save current overlays so we can add new ones
+        var existingOverlays = _currentVolume.Overlays.ToList();
+
+        try
+        {
+            using var progressForm = new RebuildProgressForm();
+            progressForm.Text = "膝关节分割";
+            progressForm.Show(this);
+            progressForm.BringToFront();
+
+            int lastPercent = 0;
+            var progress = new Progress<string>(message =>
+            {
+                if (ExternalProcessRunner.ParseProgressLine(message) is var parsed && parsed.HasValue)
+                {
+                    lastPercent = Math.Clamp(parsed.Value.Percent, 0, 100);
+                    progressForm.Report(lastPercent, parsed.Value.Message);
+                }
+                else if (!string.IsNullOrWhiteSpace(message))
+                {
+                    progressForm.Report(lastPercent, message);
+                }
+            });
+
+            var result = await _pipeline.RunSegmentationAsync(_currentVolume, progress, CancellationToken.None);
+
+            progressForm.Close();
+
+            if (result.Success)
+            {
+                // Add new overlays to current volume
+                var allOverlays = existingOverlays.Concat(result.Overlays).ToList();
+                _currentVolume = new DicomVolume
+                {
+                    SourcePath = _currentVolume.SourcePath,
+                    SourceFiles = _currentVolume.SourceFiles,
+                    Voxels = _currentVolume.Voxels,
+                    Orientation = _currentVolume.Orientation,
+                    Overlays = allOverlays,
+                    ShowOriginalIn2D = _currentVolume.ShowOriginalIn2D,
+                    UseOriginalFor3D = _currentVolume.UseOriginalFor3D
+                };
+
+                RefreshOverlayPanel();
+                RefreshViews();
+                _statusLabel.Text += $"\r\n\r\n✅ 分割完成。\r\n{result.Message}";
+
+                // Enable quantification
+                UpdateAiMenuItems();
+            }
+            else
+            {
+                MessageBox.Show(this, result.Error ?? result.Message, "分割失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"分割过程中发生错误。\r\n\r\n{ex.Message}", "分割错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            SetLoadButtonsEnabled(true);
+            _segmentationMenuItem.Enabled = _pythonSettings.IsConfigured && _currentVolume is not null;
+        }
+    }
+
+    private async void QuantificationMenuItem_Click(object? sender, EventArgs e)
+    {
+        if (_currentVolume is null)
+        {
+            return;
+        }
+
+        // Find the segmentation overlay path
+        var segOverlay = _currentVolume.Overlays.FirstOrDefault(o => o.Kind == OverlayKind.LabelMap);
+        string? segPath = segOverlay?.Path;
+        if (string.IsNullOrWhiteSpace(segPath) || !File.Exists(segPath))
+        {
+            MessageBox.Show(this, "未找到分割掩膜文件。请先运行膝关节分割。", "量化分析", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        SetLoadButtonsEnabled(false);
+        _quantificationMenuItem.Enabled = false;
+
+        try
+        {
+            using var progressForm = new RebuildProgressForm();
+            progressForm.Text = "膝关节量化分析";
+            progressForm.Show(this);
+            progressForm.BringToFront();
+
+            int lastPercent = 0;
+            var progress = new Progress<string>(message =>
+            {
+                if (ExternalProcessRunner.ParseProgressLine(message) is var parsed && parsed.HasValue)
+                {
+                    lastPercent = Math.Clamp(parsed.Value.Percent, 0, 100);
+                    progressForm.Report(lastPercent, parsed.Value.Message);
+                }
+                else if (!string.IsNullOrWhiteSpace(message))
+                {
+                    progressForm.Report(lastPercent, message);
+                }
+            });
+
+            var result = await _pipeline.RunQuantificationAsync(segPath, progress, CancellationToken.None);
+
+            progressForm.Close();
+
+            if (result.Success)
+            {
+                // Add thickness map overlay
+                if (result.Overlays.Count > 0)
+                {
+                    var allOverlays = _currentVolume.Overlays.Concat(result.Overlays).ToList();
+                    _currentVolume = new DicomVolume
+                    {
+                        SourcePath = _currentVolume.SourcePath,
+                        SourceFiles = _currentVolume.SourceFiles,
+                        Voxels = _currentVolume.Voxels,
+                        Orientation = _currentVolume.Orientation,
+                        Overlays = allOverlays,
+                        ShowOriginalIn2D = _currentVolume.ShowOriginalIn2D,
+                        UseOriginalFor3D = _currentVolume.UseOriginalFor3D
+                    };
+
+                    RefreshOverlayPanel();
+                    RefreshViews();
+                }
+
+                _statusLabel.Text += $"\r\n\r\n✅ 量化分析完成。\r\n{result.Message}";
+
+                // Show report
+                if (!string.IsNullOrWhiteSpace(result.JsonReport))
+                {
+                    using var reportForm = new QuantificationReportForm(result.JsonReport);
+                    reportForm.ShowDialog(this);
+                }
+            }
+            else
+            {
+                MessageBox.Show(this, result.Error ?? result.Message, "量化分析失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"量化分析过程中发生错误。\r\n\r\n{ex.Message}", "量化分析错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            SetLoadButtonsEnabled(true);
+            _quantificationMenuItem.Enabled = _pythonSettings.IsConfigured && _currentVolume?.Overlays.Any(o => o.Kind == OverlayKind.LabelMap) == true;
+        }
     }
 }
