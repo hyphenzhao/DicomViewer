@@ -179,55 +179,85 @@ internal sealed class CartiMorphPipeline
         int height = volume.Height;
         int width = volume.Width;
 
-        using var fileStream = File.Create(path);
-        using var gzipStream = new GZipStream(fileStream, CompressionLevel.Fastest);
-        using var writer = new BinaryWriter(gzipStream);
+        // Build the entire NIfTI-1 file in memory first (GZipStream does not support seeking).
+        const int headerSize = 348;
+        const int voxOffset = 352;
+        int voxelCount = depth * height * width;
+        int fileSize = voxOffset + voxelCount * sizeof(float);
+        byte[] buffer = new byte[fileSize];
 
-        // NIfTI-1 header (348 bytes)
-        writer.Write(348); // sizeof_hdr
-        for (int i = 0; i < 9; i++) writer.Write((byte)0); // padding (skip 4 bytes for sizeof_hdr already written, 36 bytes total)
-        // Actually, let me be precise:
-        // byte 0-3: sizeof_hdr = 348 (already written)
-        // byte 4-39: padding
-        // We need to pad to byte 40
-        for (int i = 4; i < 40; i++) writer.Write((byte)0);
+        // --- NIfTI-1 header (348 bytes), written sequentially ---
+        int pos = 0;
 
-        // dim[8] at byte 40
-        writer.Write((short)3);  // dim[0] = rank = 3
-        writer.Write((short)width);   // dim[1]
-        writer.Write((short)height);  // dim[2]
-        writer.Write((short)depth);   // dim[3]
-        for (int i = 0; i < 4; i++) writer.Write((short)1); // dim[4..7]
+        // Bytes 0-3: sizeof_hdr
+        BitConverter.GetBytes(headerSize).CopyTo(buffer, pos); pos += 4;
 
-        // intent_p1..p3, intent_code at byte 56 (skip to 70)
-        writer.BaseStream.Position = 70;
-        writer.Write((short)16); // datatype = float32
-        writer.Write((short)32); // bitpix = 32
+        // Bytes 4-39: padding (36 bytes of zero)
+        pos += 36;
 
-        // slice stuff (bytes 74-107, skip)
-        writer.BaseStream.Position = 108;
-        writer.Write(352f); // vox_offset
-        writer.Write(1f);   // scl_slope (byte 112)
-        writer.Write(0f);   // scl_inter (byte 116)
+        // Bytes 40-55: dim[8] (8 × short = 16 bytes)
+        BitConverter.GetBytes((short)3).CopyTo(buffer, pos); pos += 2;     // dim[0] = rank
+        BitConverter.GetBytes((short)width).CopyTo(buffer, pos); pos += 2; // dim[1]
+        BitConverter.GetBytes((short)height).CopyTo(buffer, pos); pos += 2;// dim[2]
+        BitConverter.GetBytes((short)depth).CopyTo(buffer, pos); pos += 2; // dim[3]
+        for (int i = 0; i < 4; i++)
+        {
+            BitConverter.GetBytes((short)1).CopyTo(buffer, pos); pos += 2; // dim[4..7]
+        }
 
-        // xyzt_units at byte 123
-        writer.BaseStream.Position = 123;
-        writer.Write((byte)2); // mm
+        // Bytes 56-69: intent_p1, intent_p2, intent_p3 (float32 each), intent_code (short)
+        pos += 14;
 
-        // magic at byte 344
-        writer.BaseStream.Position = 344;
-        writer.Write("n+1\0".ToCharArray());
+        // Bytes 70-71: datatype = 16 (float32)
+        BitConverter.GetBytes((short)16).CopyTo(buffer, pos); pos += 2;
 
-        // Padding to vox_offset (352)
-        writer.BaseStream.Position = 352;
+        // Bytes 72-73: bitpix = 32
+        BitConverter.GetBytes((short)32).CopyTo(buffer, pos); pos += 2;
 
-        // Write voxel data: float32, z-major (z, y, x)
+        // Bytes 74-107: slice_start, slice_end, slice_duration, slice_code (padding)
+        pos += 34;
+
+        // Bytes 108-111: vox_offset = 352
+        BitConverter.GetBytes((float)voxOffset).CopyTo(buffer, pos); pos += 4;
+
+        // Bytes 112-115: scl_slope = 1
+        BitConverter.GetBytes(1f).CopyTo(buffer, pos); pos += 4;
+
+        // Bytes 116-119: scl_inter = 0
+        BitConverter.GetBytes(0f).CopyTo(buffer, pos); pos += 4;
+
+        // Bytes 120-122: slice_end, slice_code (padding)
+        pos += 3;
+
+        // Byte 123: xyzt_units = 2 (mm)
+        buffer[pos++] = 2;
+
+        // Bytes 124-343: padding to magic
+        pos = 344;
+
+        // Bytes 344-347: magic = "n+1\0"
+        buffer[pos++] = (byte)'n';
+        buffer[pos++] = (byte)'+';
+        buffer[pos++] = (byte)'1';
+        buffer[pos++] = 0;
+
+        // pos should now be 348; pad to vox_offset (352)
+        // (already at 348, so 4 more bytes of zero padding)
+        pos = voxOffset;
+
+        // --- Voxel data: float32, z-major ---
         for (int z = 0; z < depth; z++)
         for (int y = 0; y < height; y++)
         for (int x = 0; x < width; x++)
         {
-            writer.Write(volume.Voxels[z, y, x]);
+            BitConverter.GetBytes(volume.Voxels[z, y, x]).CopyTo(buffer, pos);
+            pos += sizeof(float);
         }
+
+        // Write the whole buffer through GZipStream
+        using var fileStream = File.Create(path);
+        using var gzipStream = new GZipStream(fileStream, CompressionLevel.Fastest);
+        gzipStream.Write(buffer, 0, buffer.Length);
     }
 
     /// <summary>
