@@ -9,6 +9,7 @@ public sealed class MainForm : Form
     private ToolStripMenuItem _loadDicomMenuItem;
     private ToolStripMenuItem _loadNiftiMenuItem;
     private ToolStripMenuItem _loadNiftiFolderMenuItem;
+    private ToolStripMenuItem _loadImaMenuItem;
     private ToolStripMenuItem _segmentationMenuItem;
     private ToolStripMenuItem _quantificationMenuItem;
     private Button _rebuildOriginalMriButton;
@@ -125,12 +126,15 @@ public sealed class MainForm : Form
         [
             CreateMenuItem("加载 DICOM 文件夹...", (_, _) => LoadDicomButton_Click(null, EventArgs.Empty)),
             CreateMenuItem("加载 NIfTI 文件...", (_, _) => LoadNiftiButton_Click(null, EventArgs.Empty)),
-            CreateMenuItem("加载 NIfTI 文件夹...", (_, _) => LoadNiftiFolderButton_Click(null, EventArgs.Empty))
+            CreateMenuItem("加载 NIfTI 文件夹...", (_, _) => LoadNiftiFolderButton_Click(null, EventArgs.Empty)),
+            new ToolStripSeparator(),
+            CreateMenuItem("加载 IMA 文件夹...", (_, _) => LoadDicomButton_Click(null, EventArgs.Empty))
         ]);
 
         _loadDicomMenuItem = (ToolStripMenuItem)fileMenu.DropDownItems[0];
         _loadNiftiMenuItem = (ToolStripMenuItem)fileMenu.DropDownItems[1];
         _loadNiftiFolderMenuItem = (ToolStripMenuItem)fileMenu.DropDownItems[2];
+        _loadImaMenuItem = (ToolStripMenuItem)fileMenu.DropDownItems[4];
 
         var toolsMenu = new ToolStripMenuItem("工具");
         _segmentationMenuItem = new ToolStripMenuItem("膝关节分割")
@@ -706,6 +710,7 @@ public sealed class MainForm : Form
         _loadDicomMenuItem.Enabled = enabled;
         _loadNiftiMenuItem.Enabled = enabled;
         _loadNiftiFolderMenuItem.Enabled = enabled;
+        _loadImaMenuItem.Enabled = enabled;
     }
 
     private void SetRebuildButtonsEnabled(bool enabled)
