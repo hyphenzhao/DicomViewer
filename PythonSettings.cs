@@ -94,13 +94,21 @@ internal sealed class PythonSettings
         // Default scripts directory: try app-relative first, then walk up (for dev builds)
         ScriptsDirectory = FindDirectoryNear("Scripts", "cmt_segmentation.py");
 
-        // Default models directory: walk up from app dir, prefer segModel subfolder
-        string? foundModels = FindDirectoryNear("Models");
+        // Default models directory: walk up from app dir, prefer segModel subfolder with fold_0/
+        string? foundModels = FindDirectoryNear("Models", "segModel-OAIZIB-19Mar2024");
         if (foundModels is not null)
         {
-            // Prefer the segmentation model subdirectory if present
+            // Prefer the segmentation model subdirectory (must contain fold_0/model_best.model)
             string segModelDir = Path.Combine(foundModels, "segModel-OAIZIB-19Mar2024");
-            ModelsDirectory = Directory.Exists(segModelDir) ? segModelDir : foundModels;
+            if (Directory.Exists(segModelDir) && File.Exists(Path.Combine(segModelDir, "fold_0", "model_best.model")))
+            {
+                ModelsDirectory = segModelDir;
+            }
+            else if (File.Exists(Path.Combine(foundModels, "fold_0", "model_best.model")))
+            {
+                // The foundModels directory itself is a valid model directory
+                ModelsDirectory = foundModels;
+            }
         }
 
         // Default temp directory
