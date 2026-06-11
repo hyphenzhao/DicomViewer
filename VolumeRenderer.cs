@@ -23,7 +23,8 @@ internal static class VolumeRenderer
             buffer = FlipVertical(buffer);
         }
 
-        return ToBitmap(buffer, volume.Overlays, (layer, y, x) => layer.Voxels[sliceIndex, y, x]);
+        var compatible = FilterCompatibleOverlays(volume.Overlays, volume.Depth, volume.Height, volume.Width);
+        return ToBitmap(buffer, compatible, (layer, y, x) => layer.Voxels[sliceIndex, y, x]);
     }
 
     public static Bitmap RenderCoronal(DicomVolume volume, int rowIndex)
@@ -42,7 +43,8 @@ internal static class VolumeRenderer
             buffer = FlipVertical(buffer);
         }
 
-        return ToBitmap(buffer, volume.Overlays, (layer, y, x) => layer.Voxels[y, rowIndex, x]);
+        var compatible = FilterCompatibleOverlays(volume.Overlays, volume.Depth, volume.Height, volume.Width);
+        return ToBitmap(buffer, compatible, (layer, y, x) => layer.Voxels[y, rowIndex, x]);
     }
 
     public static Bitmap RenderSagittal(DicomVolume volume, int columnIndex)
@@ -66,7 +68,29 @@ internal static class VolumeRenderer
             buffer = FlipHorizontal(buffer);
         }
 
-        return ToBitmap(buffer, volume.Overlays, (layer, y, x) => layer.Voxels[y, x, columnIndex]);
+        var compatible = FilterCompatibleOverlays(volume.Overlays, volume.Depth, volume.Height, volume.Width);
+        return ToBitmap(buffer, compatible, (layer, y, x) => layer.Voxels[y, x, columnIndex]);
+    }
+
+    /// <summary>
+    /// Returns only overlays whose 3D voxel dimensions match the expected volume dimensions.
+    /// Overlays with mismatched dimensions (e.g. from nnUNet resampling) are skipped to avoid
+    /// index-out-of-bounds when accessing voxels during 2D slice rendering.
+    /// </summary>
+    private static List<NiftiOverlayLayer> FilterCompatibleOverlays(
+        IReadOnlyList<NiftiOverlayLayer> overlays, int expectedDepth, int expectedHeight, int expectedWidth)
+    {
+        var compatible = new List<NiftiOverlayLayer>(overlays.Count);
+        foreach (var overlay in overlays)
+        {
+            if (overlay.Voxels.GetLength(0) == expectedDepth &&
+                overlay.Voxels.GetLength(1) == expectedHeight &&
+                overlay.Voxels.GetLength(2) == expectedWidth)
+            {
+                compatible.Add(overlay);
+            }
+        }
+        return compatible;
     }
 
     private static float[,] FlipVertical(float[,] values)
