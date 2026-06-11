@@ -214,8 +214,19 @@ internal sealed class CartiMorphPipeline
         // Bytes 72-73: bitpix = 32
         BitConverter.GetBytes((short)32).CopyTo(buffer, pos); pos += 2;
 
-        // Bytes 74-107: slice_start, slice_end, slice_duration, slice_code (padding)
-        pos += 34;
+        // Byte 74-75: slice_start (short, padding)
+        BitConverter.GetBytes((short)0).CopyTo(buffer, pos); pos += 2;
+
+        // Bytes 76-107: pixdim[0..7] (8 × float32).  Must be non-zero for dims 1-3 or nibabel
+        // will error.  Since we don't have spacing info, write 1.0 as "unknown unit spacing".
+        BitConverter.GetBytes(1f).CopyTo(buffer, pos); pos += 4;  // pixdim[0]
+        BitConverter.GetBytes(1f).CopyTo(buffer, pos); pos += 4;  // pixdim[1]
+        BitConverter.GetBytes(1f).CopyTo(buffer, pos); pos += 4;  // pixdim[2]
+        BitConverter.GetBytes(1f).CopyTo(buffer, pos); pos += 4;  // pixdim[3]
+        BitConverter.GetBytes(0f).CopyTo(buffer, pos); pos += 4;  // pixdim[4]
+        BitConverter.GetBytes(0f).CopyTo(buffer, pos); pos += 4;  // pixdim[5]
+        BitConverter.GetBytes(0f).CopyTo(buffer, pos); pos += 4;  // pixdim[6]
+        BitConverter.GetBytes(0f).CopyTo(buffer, pos); pos += 4;  // pixdim[7]
 
         // Bytes 108-111: vox_offset = 352
         BitConverter.GetBytes((float)voxOffset).CopyTo(buffer, pos); pos += 4;
