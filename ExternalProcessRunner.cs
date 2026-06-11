@@ -47,6 +47,12 @@ internal sealed class ExternalProcessRunner
         // Tell Python to use UTF-8 for stdout/stderr when piped
         process.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
 
+        // Limit CPU thread count to prevent contention with multiprocessing
+        process.StartInfo.Environment["OMP_NUM_THREADS"] = "2";
+        process.StartInfo.Environment["MKL_NUM_THREADS"] = "2";
+        process.StartInfo.Environment["OPENBLAS_NUM_THREADS"] = "2";
+        process.StartInfo.Environment["NUMEXPR_NUM_THREADS"] = "2";
+
         var outputLines = new List<string>();
         var errorLines = new List<string>();
 
