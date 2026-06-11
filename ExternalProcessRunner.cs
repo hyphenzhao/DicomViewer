@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 
 namespace DicomViewer;
 
@@ -36,10 +37,15 @@ internal sealed class ExternalProcessRunner
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
                 WorkingDirectory = Path.GetDirectoryName(executable) ?? string.Empty
             },
             EnableRaisingEvents = true
         };
+
+        // Tell Python to use UTF-8 for stdout/stderr when piped
+        process.StartInfo.Environment["PYTHONIOENCODING"] = "utf-8";
 
         var outputLines = new List<string>();
         var errorLines = new List<string>();
