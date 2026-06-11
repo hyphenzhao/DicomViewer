@@ -91,17 +91,49 @@ internal sealed class PythonSettings
             }
         }
 
-        // Default scripts directory to app-relative
-        ScriptsDirectory = Path.Combine(AppContext.BaseDirectory, "Scripts");
+        // Default scripts directory: try app-relative first, then walk up (for dev builds)
+        ScriptsDirectory = FindDirectoryNear("Scripts", "cmt_segmentation.py");
 
-        // Default models directory
-        string defaultModels = Path.Combine(AppContext.BaseDirectory, "Models");
-        if (Directory.Exists(defaultModels))
+        // Default models directory: walk up from app dir, prefer segModel subfolder
+        string? foundModels = FindDirectoryNear("Models");
+        if (foundModels is not null)
         {
-            ModelsDirectory = defaultModels;
+            // Prefer the segmentation model subdirectory if present
+            string segModelDir = Path.Combine(foundModels, "segModel-OAIZIB-19Mar2024");
+            ModelsDirectory = Directory.Exists(segModelDir) ? segModelDir : foundModels;
         }
 
         // Default temp directory
         TempDirectory = Path.Combine(Path.GetTempPath(), "DicomViewer_CMT");
+    }
+
+    /// <summary>
+    /// Finds a subdirectory by walking up from the application base directory.
+    /// Useful during development where the binary is several levels below the project root.
+    /// </summary>
+    /// <param name="subDirName">Name of the subdirectory to find (e.g. "Scripts", "Models").</param>
+    /// <param name="sentinelFile">A file expected inside the subdirectory, used to confirm it's the right one.</param>
+    /// <returns>The full path if found, or {BaseDirectory}/{subDirName} as fallback.</returns>
+    private static string FindDirectoryNear(string subDirName, string? sentinelFile = null)
+    {
+        // Walk up from the application directory (up to 4 levels) looking for subDirName
+        string? current = AppContext.BaseDirectory;
+
+        for (int i = 0; i <= 4 && current is not null; i++)
+        {
+            string candidate = Path.Combine(current, subDirName);
+
+            if (Directory.Exists(candidate) &&
+                (sentinelFile is null || File.Exists(Path.Combine(candidate, sentinelFile))))
+            {
+                return Path.GetFullPath(candidate);
+            }
+
+            // Go up one level
+            current = Path.GetDirectoryName(current);
+        }
+
+        // Fallback to app-relative
+        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, subDirName));
     }
 }
