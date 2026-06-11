@@ -108,8 +108,8 @@ internal sealed class ExternalProcessRunner
                 await process.WaitForExitAsync(cancellationToken);
             }
 
-            // Give async readers a moment to flush.
-            await Task.WhenAny(Task.WhenAll(outputTcs.Task, errorTcs.Task), Task.Delay(1000));
+            // Give async readers time to flush remaining output.
+            await Task.WhenAny(Task.WhenAll(outputTcs.Task, errorTcs.Task), Task.Delay(5000));
         }
         catch (OperationCanceledException)
         {

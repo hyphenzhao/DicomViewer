@@ -147,18 +147,21 @@ def main():
         try:
             from CartiMorph_nnUNet.inference.predict import predict_from_folder
 
+            report_progress(40, "Running nnUNet inference (CPU, may take a while)...")
+            sys.stdout.flush()
+
             predict_from_folder(
                 model=model_dir,
                 input_folder=tmp_input,
                 output_folder=tmp_output,
                 folds=(0,),
                 save_npz=False,
-                num_threads_preprocessing=4,
-                num_threads_nifti_save=4,
+                num_threads_preprocessing=2,
+                num_threads_nifti_save=2,
                 lowres_segmentations=None,
                 part_id=0,
                 num_parts=1,
-                tta=True,
+                tta=False,  # Disable TTA for CPU speed (~8x faster)
                 mixed_precision=True,
                 overwrite_existing=True,
                 step_size=0.5,
@@ -237,6 +240,7 @@ def main():
         report_progress(100, f"Segmentation complete. Found labels: {list(unique_labels)}")
         print(f"Output: {output_path}")
         print(f"Labels: {list(unique_labels)}")
+        print("SCRIPT_DONE")  # Marker for C# to confirm clean exit
 
     except Exception as e:
         report_progress(-1, f"Segmentation failed: {e}")
