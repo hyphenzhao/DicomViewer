@@ -1265,6 +1265,51 @@ public sealed class MainForm : Form
         _volumeRenderControl.SetMesh(_currentMesh);
     }
 
+    private static void ShowErrorDialog(string title, string detail)
+    {
+        using var form = new Form
+        {
+            Text = title,
+            StartPosition = FormStartPosition.CenterParent,
+            ClientSize = new Size(700, 480),
+            MinimizeBox = false,
+            MaximizeBox = false,
+            BackColor = Color.FromArgb(37, 37, 38)
+        };
+
+        var textBox = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Both,
+            BackColor = Color.FromArgb(30, 30, 30),
+            ForeColor = Color.White,
+            Font = new Font("Consolas", 9.5f),
+            BorderStyle = BorderStyle.None,
+            Padding = new Padding(12),
+            Text = detail
+        };
+
+        var closeButton = new Button
+        {
+            Text = "关闭",
+            Dock = DockStyle.Bottom,
+            Height = 40,
+            UseVisualStyleBackColor = false,
+            BackColor = Color.FromArgb(0, 122, 204),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat
+        };
+        closeButton.FlatAppearance.BorderSize = 0;
+        closeButton.Click += (_, _) => form.Close();
+
+        form.Controls.Add(textBox);
+        form.Controls.Add(closeButton);
+        form.AcceptButton = closeButton;
+        form.ShowDialog();
+    }
+
     private void UpdateAiMenuItems()
     {
         bool hasVolume = _currentVolume is not null;
@@ -1344,12 +1389,12 @@ public sealed class MainForm : Form
             }
             else
             {
-                MessageBox.Show(this, result.Error ?? result.Message, "分割失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                ShowErrorDialog("分割失败", result.Error ?? result.Message);
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"分割过程中发生错误。\r\n\r\n{ex.Message}", "分割错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            ShowErrorDialog("分割错误", $"分割过程中发生未预期错误。\r\n\r\n{ex}");
         }
         finally
         {
@@ -1434,12 +1479,12 @@ public sealed class MainForm : Form
             }
             else
             {
-                MessageBox.Show(this, result.Error ?? result.Message, "量化分析失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                ShowErrorDialog("量化分析失败", result.Error ?? result.Message);
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"量化分析过程中发生错误。\r\n\r\n{ex.Message}", "量化分析错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            ShowErrorDialog("量化分析错误", $"量化分析过程中发生未预期错误。\r\n\r\n{ex}");
         }
         finally
         {

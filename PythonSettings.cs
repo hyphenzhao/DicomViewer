@@ -24,12 +24,14 @@ internal sealed class PythonSettings
 
     public static PythonSettings Load()
     {
+        PythonSettings? loaded = null;
+
         try
         {
             if (File.Exists(SettingsPath))
             {
                 string json = File.ReadAllText(SettingsPath);
-                return JsonSerializer.Deserialize<PythonSettings>(json) ?? new PythonSettings();
+                loaded = JsonSerializer.Deserialize<PythonSettings>(json);
             }
         }
         catch
@@ -37,9 +39,25 @@ internal sealed class PythonSettings
             // Corrupt settings file — fall through to defaults.
         }
 
-        var settings = new PythonSettings();
-        settings.AutoDetect();
-        return settings;
+        if (loaded is null)
+        {
+            var settings = new PythonSettings();
+            settings.AutoDetect();
+            return settings;
+        }
+
+        // If any saved path no longer exists, re-detect just that path.
+        var autoDetected = new PythonSettings();
+        autoDetected.AutoDetect();
+
+        if (!File.Exists(loaded.PythonInterpreterPath))
+            loaded.PythonInterpreterPath = autoDetected.PythonInterpreterPath;
+        if (!Directory.Exists(loaded.ScriptsDirectory))
+            loaded.ScriptsDirectory = autoDetected.ScriptsDirectory;
+        if (!Directory.Exists(loaded.ModelsDirectory))
+            loaded.ModelsDirectory = autoDetected.ModelsDirectory;
+
+        return loaded;
     }
 
     public void Save()

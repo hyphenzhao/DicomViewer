@@ -58,7 +58,12 @@ internal sealed class CartiMorphPipeline
 
             if (!result.Success)
             {
-                return PipelineStepResult.Fail($"分割脚本退出码: {result.ExitCode}\n\n{result.ErrorText}");
+                string detail = $"命令: {_settings.PythonInterpreterPath}\n参数: {args}\n\n";
+                if (!string.IsNullOrWhiteSpace(result.OutputText))
+                    detail += $"--- stdout ---\n{result.OutputText}\n\n";
+                if (!string.IsNullOrWhiteSpace(result.ErrorText))
+                    detail += $"--- stderr ---\n{result.ErrorText}";
+                return PipelineStepResult.Fail($"分割脚本退出码: {result.ExitCode}\n\n{detail}");
             }
 
             // Step 3: Load results as overlays
@@ -128,7 +133,12 @@ internal sealed class CartiMorphPipeline
 
             if (!result.Success)
             {
-                return PipelineStepResult.Fail($"量化分析脚本退出码: {result.ExitCode}\n\n{result.ErrorText}");
+                string detail = $"命令: {_settings.PythonInterpreterPath}\n参数: {args}\n\n";
+                if (!string.IsNullOrWhiteSpace(result.OutputText))
+                    detail += $"--- stdout ---\n{result.OutputText}\n\n";
+                if (!string.IsNullOrWhiteSpace(result.ErrorText))
+                    detail += $"--- stderr ---\n{result.ErrorText}";
+                return PipelineStepResult.Fail($"量化分析脚本退出码: {result.ExitCode}\n\n{detail}");
             }
 
             // Load thickness map as overlay
