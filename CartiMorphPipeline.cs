@@ -315,15 +315,21 @@ internal sealed class CartiMorphPipeline
 
     private static Stream OpenNiftiStream(string path)
     {
-        FileStream fileStream = File.OpenRead(path);
         string extension = Path.GetExtension(path);
+        bool isGz = string.Equals(extension, ".gz", StringComparison.OrdinalIgnoreCase);
 
-        if (string.Equals(extension, ".gz", StringComparison.OrdinalIgnoreCase))
+        if (isGz)
         {
-            return new GZipStream(fileStream, CompressionMode.Decompress);
+            // GZipStream does not support seeking, so decompress the entire file into memory.
+            using var fileStream = File.OpenRead(path);
+            using var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
+            var memoryStream = new MemoryStream();
+            gzipStream.CopyTo(memoryStream);
+            memoryStream.Position = 0;
+            return memoryStream;
         }
 
-        return fileStream;
+        return File.OpenRead(path);
     }
 
     private static float ReadNiftiValue(BinaryReader reader, short datatype, short bitpix)
