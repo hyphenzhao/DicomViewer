@@ -25,3 +25,7 @@ CartiMorph-Toolbox/
 
 # Test data
 test_data/
+
+# ML models and embedded Python runtime
+Models/
+python-embedded/
