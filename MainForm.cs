@@ -1313,9 +1313,12 @@ public sealed class MainForm : Form
     private void UpdateAiMenuItems()
     {
         bool hasVolume = _currentVolume is not null;
-        bool pythonReady = _pythonSettings.IsConfigured;
-        _segmentationMenuItem.Enabled = hasVolume && pythonReady;
-        _quantificationMenuItem.Enabled = hasVolume && pythonReady && _currentVolume?.Overlays.Any(o => o.Kind == OverlayKind.LabelMap) == true;
+        bool ready = _pythonSettings.IsConfigured;
+        bool isRemote = _pythonSettings.SegmentationMode == "Remote";
+
+        _segmentationMenuItem.Enabled = hasVolume && ready;
+        _segmentationMenuItem.Text = isRemote ? "膝关节分割 (远程)" : "膝关节分割";
+        _quantificationMenuItem.Enabled = hasVolume && ready && _currentVolume?.Overlays.Any(o => o.Kind == OverlayKind.LabelMap) == true;
     }
 
     private void SettingsMenuItem_Click(object? sender, EventArgs e)

@@ -17,6 +17,7 @@ internal sealed class CartiMorphPipeline
 
     /// <summary>
     /// Runs the full segmentation pipeline on a loaded volume.
+    /// Dispatches to local Python or remote server based on <see cref="PythonSettings.SegmentationMode"/>.
     /// </summary>
     public async Task<PipelineStepResult> RunSegmentationAsync(
         DicomVolume volume,
@@ -25,8 +26,28 @@ internal sealed class CartiMorphPipeline
     {
         if (!_settings.IsConfigured)
         {
-            return PipelineStepResult.Fail("Python 环境未配置。请在 工具 > 设置 中配置 Python 解释器路径。");
+            string hint = _settings.SegmentationMode == "Remote"
+                ? "远程服务器未配置。请在 工具 > 设置 中配置服务器地址和 API Key。"
+                : "Python 环境未配置。请在 工具 > 设置 中配置 Python 解释器路径。";
+            return PipelineStepResult.Fail(hint);
         }
+
+        if (_settings.SegmentationMode == "Remote")
+        {
+            return await RunRemoteSegmentationAsync(volume, progress, ct);
+        }
+
+        return await RunLocalSegmentationAsync(volume, progress, ct);
+    }
+
+    /// <summary>
+    /// Runs segmentation via the local Python environment (original behavior).
+    /// </summary>
+    private async Task<PipelineStepResult> RunLocalSegmentationAsync(
+        DicomVolume volume,
+        IProgress<string>? progress,
+        CancellationToken ct)
+    {
 
         string? tempDir = null;
         try
@@ -94,6 +115,114 @@ internal sealed class CartiMorphPipeline
         catch (Exception ex)
         {
             return PipelineStepResult.Fail($"分割失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Runs segmentation by sending the NIfTI to a remote CartiMorph server and
+    /// polling for the result.
+    /// </summary>
+    private async Task<PipelineStepResult> RunRemoteSegmentationAsync(
+        DicomVolume volume,
+        IProgress<string>? progress,
+        CancellationToken ct)
+    {
+        string? tempDir = null;
+        try
+        {
+            // Ensure temp directory exists
+            tempDir = CreateTempDir();
+
+            // Step 1: Save volume as NIfTI
+            progress?.Report("PROGRESS:5:正在将体数据保存为 NIfTI...");
+            string inputNifti = Path.Combine(tempDir, "input.nii.gz");
+            SaveAsNiftiGz(volume, inputNifti);
+
+            // Step 2: Upload to remote server and start segmentation
+            string serverUrl = _settings.RemoteServerUrl.TrimEnd('/');
+            string apiKey = _settings.RemoteApiKey;
+
+            progress?.Report("PROGRESS:10:正在上传体数据到远程服务器...");
+            using var client = new RemoteSegmentationClient();
+
+            string taskId = await client.UploadAsync(inputNifti, apiKey, serverUrl, ct);
+            progress?.Report($"PROGRESS:15:任务已提交，ID: {taskId}，正在等待推理完成...");
+
+            // Step 3: Poll for completion
+            int lastPercent = 15;
+            int stallCount = 0;
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(2000, ct); // Poll every 2 seconds
+
+                var status = await client.GetStatusAsync(taskId, apiKey, serverUrl, ct);
+
+                // Report progress if it changed
+                if (status.ProgressPercent > lastPercent)
+                {
+                    lastPercent = status.ProgressPercent;
+                    stallCount = 0;
+                    progress?.Report($"PROGRESS:{status.ProgressPercent}:{status.ProgressMessage}");
+                }
+                else
+                {
+                    stallCount++;
+                }
+
+                // If stalled too long (10 minutes), give up
+                if (stallCount > 300)
+                {
+                    return PipelineStepResult.Fail("远程服务器推理超时（10 分钟无进度更新）。");
+                }
+
+                if (status.Status == RemoteSegmentationClient.TaskStatus.Completed)
+                {
+                    progress?.Report("PROGRESS:85:推理完成，正在下载结果...");
+
+                    // Step 4: Download result mask
+                    string maskPath = Path.Combine(tempDir, "segmentation_mask.nii.gz");
+                    await client.DownloadResultAsync(taskId, apiKey, serverUrl, maskPath, ct);
+
+                    progress?.Report("PROGRESS:95:结果已下载，正在加载...");
+
+                    // Step 5: Load segmentation overlay (reuse existing logic)
+                    var overlay = LoadNiftiAsOverlay(maskPath, "分割掩膜 (远程)", Color.Lime, OverlayKind.LabelMap);
+                    overlay.AnatomyStructure = "分割结果";
+                    overlay.CanBuild3D = true;
+
+                    progress?.Report("PROGRESS:100:远程分割完成");
+
+                    return PipelineStepResult.Ok(
+                        $"远程分割完成。服务器: {serverUrl}，任务 ID: {taskId}",
+                        new[] { overlay },
+                        status.InfoJson);
+                }
+
+                if (status.Status == RemoteSegmentationClient.TaskStatus.Failed)
+                {
+                    return PipelineStepResult.Fail(
+                        $"远程服务器推理失败。\n任务 ID: {taskId}\n\n错误: {status.Error ?? status.ProgressMessage}");
+                }
+            }
+
+            return PipelineStepResult.Fail("操作已取消。");
+        }
+        catch (HttpRequestException ex)
+        {
+            return PipelineStepResult.Fail(
+                $"远程服务器通信失败。\n\n请检查:\n• 服务器地址是否正确: {_settings.RemoteServerUrl}\n• 服务器是否正在运行\n• API Key 是否匹配\n• 网络连接是否正常\n\nHTTP 错误: {ex.StatusCode}: {ex.Message}");
+        }
+        catch (TaskCanceledException)
+        {
+            return PipelineStepResult.Fail("操作已取消（可能是网络超时）。");
+        }
+        catch (OperationCanceledException)
+        {
+            return PipelineStepResult.Fail("操作已取消。");
+        }
+        catch (Exception ex)
+        {
+            return PipelineStepResult.Fail($"远程分割失败: {ex.Message}");
         }
     }
 

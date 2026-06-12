@@ -16,11 +16,31 @@ internal sealed class PythonSettings
     public string ScriptsDirectory { get; set; } = string.Empty;
     public string TempDirectory { get; set; } = string.Empty;
 
+    /// <summary>
+    /// "Local" = run inference via local Python process; "Remote" = send to remote server.
+    /// </summary>
+    public string SegmentationMode { get; set; } = "Local";
+
+    /// <summary>
+    /// Base URL of the remote segmentation server, e.g. "http://192.168.1.100:8000".
+    /// </summary>
+    public string RemoteServerUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Shared secret API key for authenticating with the remote server.
+    /// </summary>
+    public string RemoteApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Returns true when the selected segmentation mode is properly configured.
+    /// </summary>
     public bool IsConfigured =>
-        !string.IsNullOrWhiteSpace(PythonInterpreterPath) &&
-        File.Exists(PythonInterpreterPath) &&
-        !string.IsNullOrWhiteSpace(ScriptsDirectory) &&
-        Directory.Exists(ScriptsDirectory);
+        SegmentationMode == "Remote"
+            ? !string.IsNullOrWhiteSpace(RemoteServerUrl)
+            : !string.IsNullOrWhiteSpace(PythonInterpreterPath) &&
+              File.Exists(PythonInterpreterPath) &&
+              !string.IsNullOrWhiteSpace(ScriptsDirectory) &&
+              Directory.Exists(ScriptsDirectory);
 
     public static PythonSettings Load()
     {
